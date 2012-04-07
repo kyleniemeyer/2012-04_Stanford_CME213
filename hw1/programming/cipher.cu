@@ -186,6 +186,7 @@ int main(void)
   {
       start_timer(&timer);
       host_shift_cypher(text, cipher_text_host, shift_amount);
+std::cout<<(cipher_text_host.size());
       stop_timer(&timer,"host shift cypher");
   }
 
@@ -195,33 +196,35 @@ int main(void)
 
   bool noErrors = true;
   // generate GPU char output
-  {
-      int grid_size = -1; //TODO assign correct value
-      start_timer(&timer);
-      // launch kernel
-      //TODO call the kernel with the appropriate parameters here
-      //use the block_size defined above for the number of threads
-      check_launch("gpu shift cypher char");
-      stop_timer(&timer,"gpu shift cypher char");
-      if (!checkResults(cipher_text_host, device_output_array, "char")) {
-          noErrors = false;
-      }
-  }
+  //{
+      //int grid_size = -1; //TODO assign correct value
+      //start_timer(&timer);
+      //// launch kernel
+      ////TODO call the kernel with the appropriate parameters here
+      ////use the block_size defined above for the number of threads
+      //shift_cypher<<, block_size>>(unsigned char *input_array, unsigned char *device_output_array, shift_amount,  unsigned int array_length)
+
+      //check_launch("gpu shift cypher char");
+      //stop_timer(&timer,"gpu shift cypher char");
+      //if (!checkResults(cipher_text_host, device_output_array, "char")) {
+          //noErrors = false;
+      //}
+  //}
 
   // generate GPU uint output
-  {
-      int grid_size = -1; //TODO assign correct value
-      unsigned int iShift = -1; //TODO assign correct value; recommend using the left shift (<<) and bitwise OR (|) operators
-      start_timer(&timer);
-      // launch kernel
-      //TODO call the kernel with the appropriate parameters here
-      //use the block_size defined above for the number of threads
-      check_launch("gpu shift cypher uint");
-      stop_timer(&timer,"gpu shift cypher uint");
-      if (!checkResults(cipher_text_host, device_output_array, "uint")) {
-          noErrors = false;
-      }
-  }
+  //{
+      //int grid_size = -1; //TODO assign correct value
+      //unsigned int iShift = -1; //TODO assign correct value; recommend using the left shift (<<) and bitwise OR (|) operators
+      //start_timer(&timer);
+      //// launch kernel
+      ////TODO call the kernel with the appropriate parameters here
+      ////use the block_size defined above for the number of threads
+      //check_launch("gpu shift cypher uint");
+      //stop_timer(&timer,"gpu shift cypher uint");
+      //if (!checkResults(cipher_text_host, device_output_array, "uint")) {
+          //noErrors = false;
+      //}
+  //}
 
   //generate GPU uint2 output
   {
