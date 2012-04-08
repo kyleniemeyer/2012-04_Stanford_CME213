@@ -63,7 +63,10 @@ void host_shift_cypher(std::vector<unsigned char> &input_array, std::vector<unsi
 // by naively loading one byte and shifting it
 __global__ void shift_cypher(unsigned char *input_array, unsigned char *output_array, unsigned char shift_amount,  unsigned int array_length)
 {
-    //TODO fill in
+  unsigned int i = threadIdx.x + blockIdx.x*blockDim.x;
+  if(i<array_length){
+    output_array[i] = input_array[i] + shift_amount;
+  }
 }
 
 //Here we load 4 bytes at a time instead of just 1
@@ -71,14 +74,20 @@ __global__ void shift_cypher(unsigned char *input_array, unsigned char *output_a
 //access pattern
 __global__ void shift_cypher_int(unsigned int *input_array, unsigned int *output_array, unsigned int shift_amount, unsigned int array_length) 
 {
-    //TODO fill in
+  unsigned int i = threadIdx.x + blockIdx.x*blockDim.x;
+  if(i<array_length){
+    output_array[i] = input_array[i] + shift_amount;
+  }
 }
 
 //Here we go even further and load 8 bytes
 //does it make a further improvement?
 __global__ void shift_cypher_int2(uint2 *input_array, uint2 *output_array, unsigned int shift_amount, unsigned int array_length) 
 {
-    //TODO fill in
+  unsigned int i = threadIdx.x + blockIdx.x*blockDim.x;
+  if(i<array_length){
+    output_array[i] = input_array[i];// + shift_amount;
+  }
 }
 
 bool checkResults(std::vector<unsigned char> &cipher_text_host, unsigned char *device_output_array,
@@ -186,7 +195,6 @@ int main(void)
   {
       start_timer(&timer);
       host_shift_cypher(text, cipher_text_host, shift_amount);
-std::cout<<(cipher_text_host.size());
       stop_timer(&timer,"host shift cypher");
   }
 
@@ -196,45 +204,54 @@ std::cout<<(cipher_text_host.size());
 
   bool noErrors = true;
   // generate GPU char output
-  //{
-      //int grid_size = -1; //TODO assign correct value
-      //start_timer(&timer);
-      //// launch kernel
-      ////TODO call the kernel with the appropriate parameters here
-      ////use the block_size defined above for the number of threads
-      //shift_cypher<<, block_size>>(unsigned char *input_array, unsigned char *device_output_array, shift_amount,  unsigned int array_length)
+  {
+      //TODO assign correct value
+      int grid_size = (text.size() + block_size - 1)/block_size; 
+      start_timer(&timer);
+      // launch kernel
+      //TODO call the kernel with the appropriate parameters here
+      //use the block_size defined above for the number of threads
+      shift_cypher<<<grid_size, block_size>>>(device_input_array, device_output_array, shift_amount, text.size());
 
-      //check_launch("gpu shift cypher char");
-      //stop_timer(&timer,"gpu shift cypher char");
-      //if (!checkResults(cipher_text_host, device_output_array, "char")) {
-          //noErrors = false;
-      //}
-  //}
+      check_launch("gpu shift cypher char");
+      stop_timer(&timer,"gpu shift cypher char");
+      if (!checkResults(cipher_text_host, device_output_array, "char")) {
+          noErrors = false;
+      }
+  }
 
   // generate GPU uint output
-  //{
-      //int grid_size = -1; //TODO assign correct value
-      //unsigned int iShift = -1; //TODO assign correct value; recommend using the left shift (<<) and bitwise OR (|) operators
-      //start_timer(&timer);
-      //// launch kernel
-      ////TODO call the kernel with the appropriate parameters here
-      ////use the block_size defined above for the number of threads
-      //check_launch("gpu shift cypher uint");
-      //stop_timer(&timer,"gpu shift cypher uint");
-      //if (!checkResults(cipher_text_host, device_output_array, "uint")) {
-          //noErrors = false;
-      //}
-  //}
+  {
+      //TODO assign correct value
+      int grid_size = (int((text.size()+4-1)/4) + block_size - 1)/block_size; 
+      //TODO assign correct value; recommend using the left shift (<<) and bitwise OR (|) operators
+      unsigned int iShift = (shift_amount << 24) | (shift_amount << 16) | (shift_amount << 8) | shift_amount;
+      start_timer(&timer);
+      // launch kernel
+      //TODO call the kernel with the appropriate parameters here
+      //use the block_size defined above for the number of threads
+      shift_cypher_int<<<grid_size, block_size>>>((unsigned int *)device_input_array, (unsigned int *)device_output_array, iShift, (text.size()+4-1)/4);
+
+      check_launch("gpu shift cypher uint");
+      stop_timer(&timer,"gpu shift cypher uint");
+      if (!checkResults(cipher_text_host, device_output_array, "uint")) {
+          noErrors = false;
+      }
+  }
 
   //generate GPU uint2 output
   {
-      int grid_size = -1; //TODO assign correct value
-      unsigned int iShift = -1; //TODO assign correct value; recommend using the left shift (<<) and bitwise OR (|) operators
+      //TODO assign correct value
+      int grid_size = (int((text.size()+8-1)/8) + block_size - 1)/block_size; 
+      //TODO assign correct value; recommend using the left shift (<<) and bitwise OR (|) operators
+      unsigned int iShift = 0;shift_amount;// (shift_amount << 52) | (shift_amount << 48) | (shift_amount << 40) | (shift_amount << 32)
+                   //| (shift_amount << 24) | (shift_amount << 16) | (shift_amount << 8 ) | shift_amount;
 
       start_timer(&timer);
       // launch kernel
       //TODO call the kernel with the appropriate parameters here
       //use the block_size defined above for the number of threads
+   //   shift_cypher_int2<<<grid_size, block_size>>>((uint2 *)device_input_array, (uint2 *)device_output_array, iShift, (text.size()+8-1)/8);
       check_launch("gpu shift cypher uint2");
       stop_timer(&timer,"gpu shift cypher uint2");
       if (!checkResults(cipher_text_host, device_output_array, "uint2")) {
