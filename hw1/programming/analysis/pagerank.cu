@@ -44,26 +44,37 @@ const int maxUlps = 10;
   
 void host_graph_propagate(unsigned int *graph_indices, unsigned int *graph_edges, float *graph_nodes_in, float *graph_nodes_out, float * inv_edges_per_node, int array_length)
 {
+   size_t nBytes=0;
   for(int i=0; i < array_length; i++)
   {
     float sum = 0.f; 
+    nBytes += 2*sizeof(unsigned int);
     for(int j = graph_indices[i]; j < graph_indices[i+1]; j++)
     {
+        nBytes += 2*sizeof(float);
+        nBytes += 2*sizeof(unsigned int);
+
       sum += graph_nodes_in[graph_edges[j]]*inv_edges_per_node[graph_edges[j]];
     }
+    nBytes += 1*sizeof(float);
     graph_nodes_out[i] = 0.5f/(float)array_length + 0.5f*sum;
   }
+std::cout<<nBytes*20<<" ";
 }
 
 
 void host_graph_iterate(unsigned int *graph_indices, unsigned int *graph_edges, float *graph_nodes_A, float *graph_nodes_B, float * inv_edges_per_node, int nr_iterations, int array_length)
 {
+  //int nbytes = 293601072;
+//size_t nBytes= 0;
   assert((nr_iterations % 2) == 0);
   for(int iter = 0; iter < nr_iterations; iter+=2)
   {
     host_graph_propagate(graph_indices, graph_edges, graph_nodes_A, graph_nodes_B, inv_edges_per_node, array_length);
     host_graph_propagate(graph_indices, graph_edges, graph_nodes_B, graph_nodes_A, inv_edges_per_node, array_length);
+//nBytes = nBytes + 2*nbytes;
   }
+//std::cout<<nBytes<<" ";
 }
 
 // TODO your kernel code here
@@ -117,13 +128,24 @@ void device_graph_iterate(unsigned int *h_graph_indices,
   cudaMemcpy(d_graph_nodes_A, &h_graph_nodes_input[0], num_elements * sizeof(float), cudaMemcpyHostToDevice);
   start_timer(&timer);
 
-  const int block_size = 128;
-  
+int block_size = 128;
+
+//for(int vl = 0; vl < 5; ++vl)
+{
+  //if(block_size<128)
+     //block_size = block_size + 1;
+  //else if(block_size < 256)
+     //block_size = block_size + 32;
+  //else if(block_size < 512)
+     //block_size = block_size + 64;
+//block_size *=2;
   // TODO your kernel calls
   int grid_size = (num_elements + block_size - 1)/block_size; 
       dim3 nthreads(block_size, 1, 1);
       // 2D grids
       dim3 nblocks(128, (grid_size + 127)/128);
+//std::cout<<"\n"<<block_size<<" "<<grid_size<<" ";
+
   assert((nr_iterations % 2) == 0);
   for(int iter = 0; iter < nr_iterations; iter+=2)
   {
@@ -132,7 +154,7 @@ void device_graph_iterate(unsigned int *h_graph_indices,
   }
   check_launch("gpu graph propagate");
   stop_timer(&timer,"gpu graph propagate");
-
+}
   // TODO your final result should end up in h_graph_nodes_result, which is a *host* pointer
   cudaMemcpy(&h_graph_nodes_result[0], d_graph_nodes_A, num_elements * sizeof(float), cudaMemcpyDeviceToHost);
   cudaFree(d_graph_indices);
@@ -147,7 +169,9 @@ int main(void)
 {
   // create arrays of 2M elements
   int num_elements = 1 << 21;
-  int avg_edges = 8;
+for(int vv=2;vv<21;vv++)
+{
+  int avg_edges = vv;
   int iterations = 20;
   
   // pointers to host & device arrays
@@ -205,7 +229,7 @@ int main(void)
   
   //do page rank on the GPU
   device_graph_iterate(h_graph_indices, h_graph_edges, h_graph_nodes_input, h_graph_nodes_result, h_inv_edges_per_node, iterations, num_elements, avg_edges);
-  
+  std::cout<<"\n";
   start_timer(&timer);
   // generate reference output on CPU
   host_graph_iterate(h_graph_indices, h_graph_edges, h_graph_nodes_checker_A, h_graph_nodes_checker_B, h_inv_edges_per_node, iterations, num_elements);
@@ -235,7 +259,7 @@ int main(void)
   }
   else
   {
-    printf("Worked! CUDA and reference output match. \n");
+    printf("\n");
   }
 
   // deallocate memory
@@ -246,5 +270,7 @@ int main(void)
   free(h_graph_nodes_result);
   free(h_graph_nodes_checker_A);
   free(h_graph_nodes_checker_B);
+}
+
 }
 

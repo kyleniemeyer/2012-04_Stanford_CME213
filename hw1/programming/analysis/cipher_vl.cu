@@ -147,14 +147,20 @@ int main(void)
 
   //need to make a couple copies of the book, otherwise everything happens too quickly
   //make 2^4 = 16 copies
+
   for (int i = 0; i < 4; ++i) {
       text.insert(text.end(), text.begin(), text.end());
   }
+std::vector<unsigned char> add_text = text;
 
+for(int vl = 0; vl < 50; ++vl)
+{
+  text.insert(text.end(), add_text.begin(), add_text.end());
+  
   // compute the size of the arrays in bytes
   // with enough padding that a uint2 access won't be out of bounds
   int num_bytes = (text.size() + 7) * sizeof(unsigned char);
-
+  std::cout<<num_bytes<<" ";
   //allocate host arrays
   std::vector<unsigned char> cipher_text_gpu(text.size());
   std::vector<unsigned char> cipher_text_host(text.size());
@@ -267,7 +273,7 @@ int main(void)
   }
 
   if (noErrors) {
-      printf("All CUDA Versions matched reference output.  Outputting ciphered text.\n");
+    //  printf("All CUDA Versions matched reference output.  Outputting ciphered text.\n");
       std::ofstream ofs("mobydick_enciphered.txt");
       //use the original length, before we made copies
       for (int i = 0; i < length; ++i) {
@@ -279,5 +285,7 @@ int main(void)
   // deallocate memory
   cudaFree(device_input_array);
   cudaFree(device_output_array);
+std::cout<<"\n";
+}
 }
 
