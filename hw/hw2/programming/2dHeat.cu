@@ -426,25 +426,50 @@ void cpuComputation(Grid<floatType> &grid, const simParams &params) {
     stop_timer(&timer, text.c_str());
 }
 
+template<typename floatType>
 __global__
-void gpu2ndOrderStencil(float *curr, float *prev, int gx, int gy, int nx, int ny, float xcfl, float ycfl, int borderSize)
+void gpu2ndOrderStencil(floatType *curr, floatType *prev, int gx, int gy, int nx, int ny, floatType xcfl, floatType ycfl, int borderSize)
 {
-    //TODO: fill me in
-    //use 2D blocks
+    unsigned int x = threadIdx.x + blockIdx.x * blockDim.x + borderSize;
+    unsigned int y = threadIdx.y + blockIdx.y * blockDim.y + borderSize;
+    if( (y<ny+borderSize) && (x<nx+borderSize))
+    {
+        curr[y * gx + x] = prev[y * gx + x] + xcfl * (prev[y * gx + x +1] + prev[y * gx + x - 1] - 2 * prev[y * gx + x]) + ycfl * (prev[(y + 1) * gx + x] + prev[(y -1) * gx + x] - 2 * prev[y * gx + x]);
+    }
 }
 
+template<typename floatType>
 __global__
 void gpu4thOrderStencil(float *curr, float *prev, int gx, int gy, int nx, int ny, float xcfl, float ycfl, int borderSize)
 {
-    //TODO: fill me in
-    //use 2D blocks
+    unsigned int x = threadIdx.x + blockIdx.x * blockDim.x + borderSize;
+    unsigned int y = threadIdx.y + blockIdx.y * blockDim.y + borderSize;
+    if( (y<ny+borderSize) && (x<nx+borderSize))
+    {
+        curr[y * gx + x] = prev[y * gx + x] 
+            + xcfl * ( -      prev[x + 2 + y * gx] + 16 * prev[x + 1 + y * gx]
+                       + 30 * prev[x     + y * gx] + 16 * prev[x - 1 + y * gx] - prev[x - 2 + y * gx])
+            + ycfl * ( -      prev[x + (y+2) * gx] + 16 * prev[x + (y+1) * gx] 
+                       + 30 * prev[x     + y * gx] - 16 * prev[x + (y-1) * gx] - prev[x + (y-2) * gx]);
+    }
 }
 
+template<typename floatType>
 __global__
 void gpu8thOrderStencil(float *curr, float *prev, int gx, int gy, int nx, int ny, float xcfl, float ycfl, int borderSize)
 {
-    //TODO: fill me in
-    //use 2D blocks
+    unsigned int x = threadIdx.x + blockIdx.x * blockDim.x + borderSize;
+    unsigned int y = threadIdx.y + blockIdx.y * blockDim.y + borderSize;
+    if( (y<ny+borderSize) && (x<nx+borderSize))
+    {
+        curr[y * gx + x] = prev[y * gx + x] 
+            + xcfl * ( - 9    * prev[x + 4 + y * gx] + 128   * prev[x + 3 + y * gx] - 1008 * prev[x + 2 + y * gx]
+                       + 8064 * prev[x + 1 + y * gx] - 14350 * prev[x     + y * gx] + 8064 * prev[x - 1 + y * gx] 
+                       - 1008 * prev[x - 2 + y * gx] + 128   * prev[x - 3 + y * gx] - 9    * prev[x - 4 + y * gx])
+            + ycfl * ( -9     * prev[x + (y+4) * gx] + 128   * prev[x + (y+3) * gx] - 1008 * prev[x + (y+2) * gx]
+                       + 8064 * prev[x + (y+1) * gx] - 14350 * prev[x     + y * gx] + 8064 * prev[x + (y-1) * gx]
+                       - 1008 * prev[x + (y-2) * gx] + 128   * prev[x + (y-3) * gx] - 9    * prev[x + (y-4) * gx]);
+    }
 }
 
 //because only the stencil computation differs between the different kernels
@@ -475,13 +500,16 @@ void gpuShared(float *curr, float *prev, int gx, int gy, int nx, int ny, float x
 //For the non-shared version we've given a mostly complete implementation of the host function
 //that calls the kernels.  This takes care of the ping-ponging for you.  You will have to impelment
 //the equivalent function for shared memory only on your own.
-void gpuComputation(std::vector<float> &hInitialCondition, const simParams &params, std::vector<float> &hResults) {
-    thrust::device_vector<float> dGridVec = hInitialCondition;
-    float * dGrid = thrust::raw_pointer_cast(&dGridVec[0]);
+template<typename floatType>
+void gpuComputation(std::vector<floatType> &hInitialCondition, const simParams &params, std::vector<floatType> &hResults) {
+    thrust::device_vector<floatType> dGridVec = hInitialCondition;
+    floatType * dGrid = thrust::raw_pointer_cast(&dGridVec[0]);
 
     int totalSize = params.gx() * params.gy();
     dim3 threads(16, 16);
     dim3 blocks(1, 1/*TODO fill in correct 2D grid dimensions*/);
+    blocks.x = ( int(params.nx()) + threads.x - 1)/threads.x;
+    blocks.y = ( int(params.ny()) + threads.y - 1)/threads.y;
     int curr = 0;
     int prev = 1;
     event_pair timer;
@@ -490,7 +518,7 @@ void gpuComputation(std::vector<float> &hInitialCondition, const simParams &para
         for (int i = 0; i < params.iters(); ++i) {
             prev = curr;
             curr ^= 1; //binary XOR
-            gpu2ndOrderStencil<<<blocks, threads >>>(dGrid + curr * totalSize, dGrid + prev * totalSize, 
+            gpu2ndOrderStencil<floatType><<<blocks, threads >>>(dGrid + curr * totalSize, dGrid + prev * totalSize, 
                     params.gx(), params.gy(), params.nx(), params.ny(), params.xcfl(), params.ycfl(), params.borderSize());
             check_launch("2ndOrderStencil");
         }
@@ -499,7 +527,7 @@ void gpuComputation(std::vector<float> &hInitialCondition, const simParams &para
         for (int i = 0; i < params.iters(); ++i) {
             prev = curr;
             curr ^= 1; //binary XOR
-            gpu4thOrderStencil<<<blocks, threads >>>(dGrid + curr * totalSize, dGrid + prev * totalSize, 
+            gpu4thOrderStencil<floatType><<<blocks, threads >>>(dGrid + curr * totalSize, dGrid + prev * totalSize, 
                     params.gx(), params.gy(), params.nx(), params.ny(), params.xcfl(), params.ycfl(), params.borderSize());
             check_launch("4thOrderStencil");
         }
@@ -508,7 +536,7 @@ void gpuComputation(std::vector<float> &hInitialCondition, const simParams &para
         for (int i = 0; i < params.iters(); ++i) {
             prev = curr;
             curr ^= 1; //binary XOR
-            gpu8thOrderStencil<<<blocks, threads >>>(dGrid + curr * totalSize, dGrid + prev * totalSize, 
+            gpu8thOrderStencil<floatType><<<blocks, threads >>>(dGrid + curr * totalSize, dGrid + prev * totalSize, 
                     params.gx(), params.gy(), params.nx(), params.ny(), params.xcfl(), params.ycfl(), params.borderSize());
             check_launch("8thOrderStencil");
         }
@@ -604,7 +632,7 @@ int main(int argc, char *argv[])
     grid.saveStateToFile("final_cpu");
 
     std::vector<float> hOutput;
-    gpuComputation(hInitialCondition, params, hOutput);
+    gpuComputation<float>(hInitialCondition, params, hOutput);
     checkErrors(grid, hOutput, params);
     outputGrid(hOutput, params, "final_gpu_simple");
     
