@@ -440,7 +440,7 @@ void gpu2ndOrderStencil(floatType *curr, floatType *prev, int gx, int gy, int nx
 
 template<typename floatType>
 __global__
-void gpu4thOrderStencil(float *curr, float *prev, int gx, int gy, int nx, int ny, float xcfl, float ycfl, int borderSize)
+void gpu4thOrderStencil(floatType *curr, floatType *prev, int gx, int gy, int nx, int ny, floatType xcfl, floatType ycfl, int borderSize)
 {
     unsigned int x = threadIdx.x + blockIdx.x * blockDim.x + borderSize;
     unsigned int y = threadIdx.y + blockIdx.y * blockDim.y + borderSize;
@@ -448,15 +448,15 @@ void gpu4thOrderStencil(float *curr, float *prev, int gx, int gy, int nx, int ny
     {
         curr[y * gx + x] = prev[y * gx + x] 
             + xcfl * ( -      prev[x + 2 + y * gx] + 16 * prev[x + 1 + y * gx]
-                       + 30 * prev[x     + y * gx] + 16 * prev[x - 1 + y * gx] - prev[x - 2 + y * gx])
+                       - 30 * prev[x     + y * gx] + 16 * prev[x - 1 + y * gx] - prev[x - 2 + y * gx])
             + ycfl * ( -      prev[x + (y+2) * gx] + 16 * prev[x + (y+1) * gx] 
-                       + 30 * prev[x     + y * gx] - 16 * prev[x + (y-1) * gx] - prev[x + (y-2) * gx]);
+                       - 30 * prev[x     + y * gx] + 16 * prev[x + (y-1) * gx] - prev[x + (y-2) * gx]);
     }
 }
-
+ 
 template<typename floatType>
 __global__
-void gpu8thOrderStencil(float *curr, float *prev, int gx, int gy, int nx, int ny, float xcfl, float ycfl, int borderSize)
+void gpu8thOrderStencil(floatType *curr, floatType *prev, int gx, int gy, int nx, int ny, floatType xcfl, floatType ycfl, int borderSize)
 {
     unsigned int x = threadIdx.x + blockIdx.x * blockDim.x + borderSize;
     unsigned int y = threadIdx.y + blockIdx.y * blockDim.y + borderSize;
@@ -614,38 +614,40 @@ int checkErrors(const Grid<floatType> &grid, const std::vector<floatType> &hGpuG
 
 int main(int argc, char *argv[])
 {
+    
+    typedef float FloatType;
     if (argc != 2) {
         std::cerr << "Please supply a parameter file!" << std::endl;
         exit(1);
     }
 
     simParams params(argv[1], true);
-    Grid<float> grid(params, true);
+    Grid<FloatType> grid(params, true);
 
     grid.saveStateToFile("init"); //save our initial state, useful for making sure we
                                   //got setup and BCs right
 
-    std::vector<float> hInitialCondition = grid.getGrid(); //make a copy of the initial state for the GPU
-    std::vector<float> hInitialConditionShared = hInitialCondition;
+    std::vector<FloatType> hInitialCondition = grid.getGrid(); //make a copy of the initial state for the GPU
+    std::vector<FloatType> hInitialConditionShared = hInitialCondition;
 
     cpuComputation(grid, params);
     grid.saveStateToFile("final_cpu");
 
-    std::vector<float> hOutput;
-    gpuComputation<float>(hInitialCondition, params, hOutput);
+    std::vector<FloatType> hOutput;
+    gpuComputation<FloatType>(hInitialCondition, params, hOutput);
     checkErrors(grid, hOutput, params);
     outputGrid(hOutput, params, "final_gpu_simple");
     
-    if (params.order() == 2)
-        gpuComputationShared2ndOrder(hInitialConditionShared, params, hOutput);
-    else if (params.order() == 4)
-        gpuComputationShared4thOrder(hInitialConditionShared, params, hOutput);
-    else if (params.order() == 8)
-        gpuComputationShared8thOrder(hInitialConditionShared, params, hOutput);
+    //if (params.order() == 2)
+        //gpuComputationShared2ndOrder(hInitialConditionShared, params, hOutput);
+    //else if (params.order() == 4)
+        //gpuComputationShared4thOrder(hInitialConditionShared, params, hOutput);
+    //else if (params.order() == 8)
+        //gpuComputationShared8thOrder(hInitialConditionShared, params, hOutput);
 
-    checkErrors(grid, hOutput, params);
+    //checkErrors(grid, hOutput, params);
 
-    outputGrid(hOutput, params, "final_gpu_shared");
+    //outputGrid(hOutput, params, "final_gpu_shared");
 
     return 0;
 }
