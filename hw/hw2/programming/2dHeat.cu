@@ -580,7 +580,7 @@ void gpuSharedComputation(std::vector<floatType> &hInitialCondition, const simPa
     
     const int x_side = 128;
     const int x_usefulSide = x_side - 2*borderSize;
-    const int y_side = 92; 
+    const int y_side = 32; 
     const int y_usefulSide = y_side - 2*borderSize;
 
     blocks.x = ( int(params.nx()) + x_usefulSide - 1)/x_usefulSide;
@@ -674,7 +674,7 @@ int checkErrors(const Grid<floatType> &grid, const std::vector<floatType> &hGpuG
 int main(int argc, char *argv[])
 {
     
-    typedef float FloatType;
+    typedef double FloatType;
     if (argc != 2) {
         std::cerr << "Please supply a parameter file!" << std::endl;
         exit(1);

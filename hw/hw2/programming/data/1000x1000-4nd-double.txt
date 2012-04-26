@@ -1,0 +1,13 @@
+nx: 1000 ny: 1000
+gx: 1004 gy: 1004
+lx 1.000000: ly: 1.000000
+alpha: 1.000000
+iterations: 10
+order: 4
+ic: 5.000000
+dx: 0.001001 dy: 0.001001
+dt: 0.000000 xcfl: 0.015622 ycfl: 0.015622
+(1000, 1000) (1004, 1004)
+cpu computation double took 80.33 ms
+gpu computation float took 4.57 ms
+gpu shared computation float took 4.15 ms

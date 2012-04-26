@@ -1,0 +1,13 @@
+nx: 1000 ny: 2000
+gx: 1008 gy: 2008
+lx 1.000000: ly: 1.000000
+alpha: 1.000000
+iterations: 10
+order: 8
+ic: 5.000000
+dx: 0.001001 dy: 0.000500
+dt: 0.000000 xcfl: 0.000012 ycfl: 0.000050
+(1000, 2000) (1008, 2008)
+cpu computation float took 272.77 ms
+gpu computation float took 14.31 ms
+gpu shared computation float took 6.73 ms
