@@ -467,68 +467,46 @@ template<typename floatType, int side, int usefulSide, int borderSize, int order
 __global__
 void gpuShared(floatType *curr, floatType *prev, int gx, int gy, int nx, int ny, floatType xcfl, floatType ycfl)
 {
-    __shared__ floatType smem[side][side];
-    unsigned int x = threadIdx.x;// + blockIdx.x * blockDim.x ;
-    unsigned int y = threadIdx.y;// + blockIdx.y * blockDim.y ;
-    
+    __shared__ floatType smem[side][side+1];
     //TODO: figure out where this block should load from
-    const unsigned int global_x_shift = blockIdx.x * usefulSide;
-    const unsigned int global_y_shift = blockIdx.y * usefulSide;
-    unsigned int global_x = 0;
-    unsigned int global_y = 0;
-    unsigned int local_x = 0; // global_x = local_x + global_x_shift
-    unsigned int local_y = 0; // global_x = local_y + global_y_shift
+    unsigned int global_x = threadIdx.x + blockIdx.x * usefulSide;
+    unsigned int global_y = threadIdx.y + blockIdx.y * usefulSide;
     
     //TODO: load into our shared memory
-    for(unsigned int j=0; j<(side + blockDim.y-1)/blockDim.y; ++j){
-        for(unsigned int i=0; i<(side + blockDim.x-1)/blockDim.x; ++i){
-            local_x = x + i * blockDim.x;
-            local_y = y + j * blockDim.y;
-            global_x = local_x + global_x_shift;
-            global_y = local_y + global_y_shift;
-            if(global_x<gx && global_y< gy){
-                smem[local_y][local_x] = prev[(global_y)*gx + global_x];
-            }
-        }
-    }
+    if(global_x<gx && global_y<gy){smem[threadIdx.y][threadIdx.x] = prev[global_y*gx + global_x];}
     __syncthreads();
 
     //now that everything is loaded is smem, do the stencil calculation, we can store directly to global memory if we make sure to coalesce
     //we can use a conditional based on the order, ie,
     
-    for(unsigned int j=0; j<(side + blockDim.y-1)/blockDim.y; ++j){
-        for(unsigned int i=0; i<(side + blockDim.x-1)/blockDim.x; ++i){
-            local_x = x + borderSize + i * blockDim.x;
-            local_y = y + borderSize + j * blockDim.y;
-            global_x = local_x + global_x_shift;
-            global_y = local_y + global_y_shift;
-            if(global_x<gx-borderSize && global_y< gy-borderSize && local_x<side-borderSize && local_y<side-borderSize){
-                curr[(global_y)*gx + global_x] = smem[local_y][local_x] ;
-                    //if (order == 2) {
-                        //curr[(global_y)*gx + global_x] = smem[local_y][local_x] 
-                             //+ xcfl * ( smem[local_y][local_x+1] + smem[local_y][local_x-1] - 2 * smem[local_y][local_x]) 
-                             //+ ycfl * ( smem[local_y+1][local_x] + smem[local_y-1][local_x] - 2 * smem[local_y][local_x]);
-                    //}
-                    //else if (order == 4) {
-                        //curr[(global_y)*gx + global_x] = smem[local_y][local_x] 
-                            //+ xcfl * ( -      smem[local_y][local_x+2] + 16 * smem[local_y][local_x+1]
-                                       //- 30 * smem[local_y][local_x]   + 16 * smem[local_y][local_x-1] - smem[local_y][local_x-2])
-                            //+ ycfl * ( -      smem[local_y+2][local_x] + 16 * smem[local_y+1][local_x]
-                                       //- 30 * smem[local_y][local_x]   + 16 * smem[local_y-1][local_x] - smem[local_y-2][local_x]);
+    unsigned int local_x = threadIdx.x + borderSize;
+    unsigned int local_y = threadIdx.y + borderSize;
+    
+    if(global_x<nx && global_y<ny && threadIdx.x<usefulSide && threadIdx.y<usefulSide){
+                    if (order == 2) {
+                        curr[(global_y+borderSize)*gx + global_x+borderSize] = smem[local_y][local_x] 
+                             + xcfl * ( smem[local_y][local_x+1] + smem[local_y][local_x-1] - 2 * smem[local_y][local_x]) 
+                             + ycfl * ( smem[local_y+1][local_x] + smem[local_y-1][local_x] - 2 * smem[local_y][local_x]);
+                    }
+                    else if (order == 4) {
+                        curr[(global_y+borderSize)*gx + global_x+borderSize] = smem[local_y][local_x] 
+                            + xcfl * ( -      smem[local_y][local_x+2] + 16 * smem[local_y][local_x+1]
+                                       - 30 * smem[local_y][local_x]   + 16 * smem[local_y][local_x-1] - smem[local_y][local_x-2])
+                            + ycfl * ( -      smem[local_y+2][local_x] + 16 * smem[local_y+1][local_x]
+                                       - 30 * smem[local_y][local_x]   + 16 * smem[local_y-1][local_x] - smem[local_y-2][local_x]);
 
-                    //}
-                    //else if (order == 8) {
-                        //curr[(global_y)*gx + global_x] = smem[local_y][local_x] 
-                            //+ xcfl * ( - 9    *  smem[local_y][local_x+4] + 128   *  smem[local_y][local_x+3] - 1008 *  smem[local_y][local_x+2] 
-                                       //+ 8064 *  smem[local_y][local_x+1] - 14350 *  smem[local_y][local_x]   + 8064 *  smem[local_y][local_x-1] 
-                                       //- 1008 *  smem[local_y][local_x-2] + 128   *  smem[local_y][local_x-3] - 9    *  smem[local_y][local_x-4] )
-                            //+ ycfl * ( -9     *  smem[local_y+4][local_x] + 128   *  smem[local_y+3][local_x] - 1008 *  smem[local_y+2][local_x] 
-                                       //+ 8064 *  smem[local_y+1][local_x] - 14350 *  smem[local_y][local_x]   + 8064 *  smem[local_y-1][local_x] 
-                                       //- 1008 *  smem[local_y-2][local_x] + 128   *  smem[local_y-3][local_x] - 9    *  smem[local_y-4][local_x] );
-                    //}
+                    }
+                    else if (order == 8) {
+                        curr[(global_y+borderSize)*gx + global_x+borderSize] = smem[local_y][local_x] 
+                            + xcfl * ( - 9    *  smem[local_y][local_x+4] + 128   *  smem[local_y][local_x+3] - 1008 *  smem[local_y][local_x+2] 
+                                       + 8064 *  smem[local_y][local_x+1] - 14350 *  smem[local_y][local_x]   + 8064 *  smem[local_y][local_x-1] 
+                                       - 1008 *  smem[local_y][local_x-2] + 128   *  smem[local_y][local_x-3] - 9    *  smem[local_y][local_x-4] )
+                            + ycfl * ( -9     *  smem[local_y+4][local_x] + 128   *  smem[local_y+3][local_x] - 1008 *  smem[local_y+2][local_x] 
+                                       + 8064 *  smem[local_y+1][local_x] - 14350 *  smem[local_y][local_x]   + 8064 *  smem[local_y-1][local_x] 
+                                       - 1008 *  smem[local_y-2][local_x] + 128   *  smem[local_y-3][local_x] - 9    *  smem[local_y-4][local_x] );
+                    }
             }
-        }
-    }
+       
 }
 
 //For the non-shared version we've given a mostly complete implementation of the host function
