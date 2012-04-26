@@ -85,6 +85,7 @@
 #include <thrust/device_vector.h>
 
 #include "mp1-util.h"
+#define UNREFERENCED(x)  ((void)x)
 
 class simParams {
     public:
@@ -426,75 +427,108 @@ void cpuComputation(Grid<floatType> &grid, const simParams &params) {
     stop_timer(&timer, text.c_str());
 }
 
-template<typename floatType>
+// I rewrote gpu2ndOrderStencil, gpu4ndOrderStencil, and gpu8ndOrderStencil into one template.
+template<typename floatType, int order>
 __global__
-void gpu2ndOrderStencil(floatType *curr, floatType *prev, int gx, int gy, int nx, int ny, floatType xcfl, floatType ycfl, int borderSize)
+void gpuGlobal(floatType *curr, floatType *prev, int gx, int gy, int nx, int ny, floatType xcfl, floatType ycfl, int borderSize)
 {
     unsigned int x = threadIdx.x + blockIdx.x * blockDim.x + borderSize;
     unsigned int y = threadIdx.y + blockIdx.y * blockDim.y + borderSize;
-    if( (y<ny+borderSize) && (x<nx+borderSize))
-    {
-        curr[y * gx + x] = prev[y * gx + x] + xcfl * (prev[y * gx + x +1] + prev[y * gx + x - 1] - 2 * prev[y * gx + x]) + ycfl * (prev[(y + 1) * gx + x] + prev[(y -1) * gx + x] - 2 * prev[y * gx + x]);
-    }
-}
+    if( (y<gy-borderSize) && (x<gx-borderSize)) {
+        if (order == 2) {
+            curr[y * gx + x] = prev[y * gx + x] 
+                + xcfl * (        prev[y * gx + x + 1] +      prev[y * gx + x - 1] - 2 * prev[y * gx + x]) 
+                + ycfl * (        prev[(y+1) * gx + x] +      prev[(y-1) * gx + x] - 2 * prev[y * gx + x]);
+        }
+        else if (order == 4) {
+            curr[y * gx + x] = prev[y * gx + x] 
+                + xcfl * ( -      prev[x + 2 + y * gx] + 16 * prev[x + 1 + y * gx]
+                           - 30 * prev[x     + y * gx] + 16 * prev[x - 1 + y * gx] - prev[x - 2 + y * gx])
+                + ycfl * ( -      prev[x + (y+2) * gx] + 16 * prev[x + (y+1) * gx] 
+                           - 30 * prev[x     + y * gx] + 16 * prev[x + (y-1) * gx] - prev[x + (y-2) * gx]);
 
-template<typename floatType>
-__global__
-void gpu4thOrderStencil(floatType *curr, floatType *prev, int gx, int gy, int nx, int ny, floatType xcfl, floatType ycfl, int borderSize)
-{
-    unsigned int x = threadIdx.x + blockIdx.x * blockDim.x + borderSize;
-    unsigned int y = threadIdx.y + blockIdx.y * blockDim.y + borderSize;
-    if( (y<ny+borderSize) && (x<nx+borderSize))
-    {
-        curr[y * gx + x] = prev[y * gx + x] 
-            + xcfl * ( -      prev[x + 2 + y * gx] + 16 * prev[x + 1 + y * gx]
-                       - 30 * prev[x     + y * gx] + 16 * prev[x - 1 + y * gx] - prev[x - 2 + y * gx])
-            + ycfl * ( -      prev[x + (y+2) * gx] + 16 * prev[x + (y+1) * gx] 
-                       - 30 * prev[x     + y * gx] + 16 * prev[x + (y-1) * gx] - prev[x + (y-2) * gx]);
-    }
-}
- 
-template<typename floatType>
-__global__
-void gpu8thOrderStencil(floatType *curr, floatType *prev, int gx, int gy, int nx, int ny, floatType xcfl, floatType ycfl, int borderSize)
-{
-    unsigned int x = threadIdx.x + blockIdx.x * blockDim.x + borderSize;
-    unsigned int y = threadIdx.y + blockIdx.y * blockDim.y + borderSize;
-    if( (y<ny+borderSize) && (x<nx+borderSize))
-    {
-        curr[y * gx + x] = prev[y * gx + x] 
-            + xcfl * ( - 9    * prev[x + 4 + y * gx] + 128   * prev[x + 3 + y * gx] - 1008 * prev[x + 2 + y * gx]
-                       + 8064 * prev[x + 1 + y * gx] - 14350 * prev[x     + y * gx] + 8064 * prev[x - 1 + y * gx] 
-                       - 1008 * prev[x - 2 + y * gx] + 128   * prev[x - 3 + y * gx] - 9    * prev[x - 4 + y * gx])
-            + ycfl * ( -9     * prev[x + (y+4) * gx] + 128   * prev[x + (y+3) * gx] - 1008 * prev[x + (y+2) * gx]
-                       + 8064 * prev[x + (y+1) * gx] - 14350 * prev[x     + y * gx] + 8064 * prev[x + (y-1) * gx]
-                       - 1008 * prev[x + (y-2) * gx] + 128   * prev[x + (y-3) * gx] - 9    * prev[x + (y-4) * gx]);
+        }
+        else if (order == 8) {
+            curr[y * gx + x] = prev[y * gx + x] 
+                + xcfl * ( - 9    * prev[x + 4 + y * gx] + 128   * prev[x + 3 + y * gx] - 1008 * prev[x + 2 + y * gx]
+                           + 8064 * prev[x + 1 + y * gx] - 14350 * prev[x     + y * gx] + 8064 * prev[x - 1 + y * gx] 
+                           - 1008 * prev[x - 2 + y * gx] + 128   * prev[x - 3 + y * gx] - 9    * prev[x - 4 + y * gx])
+                + ycfl * ( -9     * prev[x + (y+4) * gx] + 128   * prev[x + (y+3) * gx] - 1008 * prev[x + (y+2) * gx]
+                           + 8064 * prev[x + (y+1) * gx] - 14350 * prev[x     + y * gx] + 8064 * prev[x + (y-1) * gx]
+                           - 1008 * prev[x + (y-2) * gx] + 128   * prev[x + (y-3) * gx] - 9    * prev[x + (y-4) * gx]);
+        }
     }
 }
 
 //because only the stencil computation differs between the different kernels
 //we don't want to duplicate all that code, BUT we also don't want to introduce a ton of
 //if statements inside the kernel.  So we use a template to compile only the correct code
-template<int side, int usefulSide, int borderSize, int order, int numThreads>
+template<typename floatType, int side, int usefulSide, int borderSize, int order, int numThreads>
 __global__
-void gpuShared(float *curr, float *prev, int gx, int gy, int nx, int ny, float xcfl, float ycfl)
+void gpuShared(floatType *curr, floatType *prev, int gx, int gy, int nx, int ny, floatType xcfl, floatType ycfl)
 {
+    __shared__ floatType smem[side][side];
+    unsigned int x = threadIdx.x;// + blockIdx.x * blockDim.x ;
+    unsigned int y = threadIdx.y;// + blockIdx.y * blockDim.y ;
+    
     //TODO: figure out where this block should load from
-
+    const unsigned int global_x_shift = blockIdx.x * usefulSide;
+    const unsigned int global_y_shift = blockIdx.y * usefulSide;
+    unsigned int global_x = 0;
+    unsigned int global_y = 0;
+    unsigned int local_x = 0; // global_x = local_x + global_x_shift
+    unsigned int local_y = 0; // global_x = local_y + global_y_shift
+    
     //TODO: load into our shared memory
+    for(unsigned int j=0; j<(side + blockDim.y-1)/blockDim.y; ++j){
+        for(unsigned int i=0; i<(side + blockDim.x-1)/blockDim.x; ++i){
+            local_x = x + i * blockDim.x;
+            local_y = y + j * blockDim.y;
+            global_x = local_x + global_x_shift;
+            global_y = local_y + global_y_shift;
+            if(global_x<gx && global_y< gy){
+                smem[local_y][local_x] = prev[(global_y)*gx + global_x];
+            }
+        }
+    }
     __syncthreads();
 
     //now that everything is loaded is smem, do the stencil calculation, we can store directly to global memory if we make sure to coalesce
     //we can use a conditional based on the order, ie,
-    //if (order == 2) {
-    // ...
-    //}
-    //else if (order == 4) {
-    // ...
-    //}
-    //...
-    //since it is a template parameter and the conditional will be evaluated at compile time
-    //NOT runtime!
+    
+    for(unsigned int j=0; j<(side + blockDim.y-1)/blockDim.y; ++j){
+        for(unsigned int i=0; i<(side + blockDim.x-1)/blockDim.x; ++i){
+            local_x = x + borderSize + i * blockDim.x;
+            local_y = y + borderSize + j * blockDim.y;
+            global_x = local_x + global_x_shift;
+            global_y = local_y + global_y_shift;
+            if(global_x<gx-borderSize && global_y< gy-borderSize && local_x<side-borderSize && local_y<side-borderSize){
+                curr[(global_y)*gx + global_x] = smem[local_y][local_x] ;
+                    //if (order == 2) {
+                        //curr[(global_y)*gx + global_x] = smem[local_y][local_x] 
+                             //+ xcfl * ( smem[local_y][local_x+1] + smem[local_y][local_x-1] - 2 * smem[local_y][local_x]) 
+                             //+ ycfl * ( smem[local_y+1][local_x] + smem[local_y-1][local_x] - 2 * smem[local_y][local_x]);
+                    //}
+                    //else if (order == 4) {
+                        //curr[(global_y)*gx + global_x] = smem[local_y][local_x] 
+                            //+ xcfl * ( -      smem[local_y][local_x+2] + 16 * smem[local_y][local_x+1]
+                                       //- 30 * smem[local_y][local_x]   + 16 * smem[local_y][local_x-1] - smem[local_y][local_x-2])
+                            //+ ycfl * ( -      smem[local_y+2][local_x] + 16 * smem[local_y+1][local_x]
+                                       //- 30 * smem[local_y][local_x]   + 16 * smem[local_y-1][local_x] - smem[local_y-2][local_x]);
+
+                    //}
+                    //else if (order == 8) {
+                        //curr[(global_y)*gx + global_x] = smem[local_y][local_x] 
+                            //+ xcfl * ( - 9    *  smem[local_y][local_x+4] + 128   *  smem[local_y][local_x+3] - 1008 *  smem[local_y][local_x+2] 
+                                       //+ 8064 *  smem[local_y][local_x+1] - 14350 *  smem[local_y][local_x]   + 8064 *  smem[local_y][local_x-1] 
+                                       //- 1008 *  smem[local_y][local_x-2] + 128   *  smem[local_y][local_x-3] - 9    *  smem[local_y][local_x-4] )
+                            //+ ycfl * ( -9     *  smem[local_y+4][local_x] + 128   *  smem[local_y+3][local_x] - 1008 *  smem[local_y+2][local_x] 
+                                       //+ 8064 *  smem[local_y+1][local_x] - 14350 *  smem[local_y][local_x]   + 8064 *  smem[local_y-1][local_x] 
+                                       //- 1008 *  smem[local_y-2][local_x] + 128   *  smem[local_y-3][local_x] - 9    *  smem[local_y-4][local_x] );
+                    //}
+            }
+        }
+    }
 }
 
 //For the non-shared version we've given a mostly complete implementation of the host function
@@ -518,27 +552,27 @@ void gpuComputation(std::vector<floatType> &hInitialCondition, const simParams &
         for (int i = 0; i < params.iters(); ++i) {
             prev = curr;
             curr ^= 1; //binary XOR
-            gpu2ndOrderStencil<floatType><<<blocks, threads >>>(dGrid + curr * totalSize, dGrid + prev * totalSize, 
+            gpuGlobal<floatType, 2><<<blocks, threads>>>(dGrid + curr * totalSize, dGrid + prev * totalSize, 
                     params.gx(), params.gy(), params.nx(), params.ny(), params.xcfl(), params.ycfl(), params.borderSize());
-            check_launch("2ndOrderStencil");
+            check_launch("Global 2ndOrderStencil");
         }
     }
     else if (params.order() == 4) {
         for (int i = 0; i < params.iters(); ++i) {
             prev = curr;
             curr ^= 1; //binary XOR
-            gpu4thOrderStencil<floatType><<<blocks, threads >>>(dGrid + curr * totalSize, dGrid + prev * totalSize, 
+            gpuGlobal<floatType, 4><<<blocks, threads>>>(dGrid + curr * totalSize, dGrid + prev * totalSize, 
                     params.gx(), params.gy(), params.nx(), params.ny(), params.xcfl(), params.ycfl(), params.borderSize());
-            check_launch("4thOrderStencil");
+            check_launch("Global 4ndOrderStencil");
         }
     }
     else if (params.order() == 8) {
         for (int i = 0; i < params.iters(); ++i) {
             prev = curr;
             curr ^= 1; //binary XOR
-            gpu8thOrderStencil<floatType><<<blocks, threads >>>(dGrid + curr * totalSize, dGrid + prev * totalSize, 
+            gpuGlobal<floatType, 8><<<blocks, threads>>>(dGrid + curr * totalSize, dGrid + prev * totalSize, 
                     params.gx(), params.gy(), params.nx(), params.ny(), params.xcfl(), params.ycfl(), params.borderSize());
-            check_launch("8thOrderStencil");
+            check_launch("Global 8ndOrderStencil");
         }
     }
     stop_timer(&timer, "gpu computation float");
@@ -546,28 +580,68 @@ void gpuComputation(std::vector<floatType> &hInitialCondition, const simParams &
     thrust::copy(dGridVec.begin() + curr * totalSize, dGridVec.end() - prev * totalSize, hResults.begin()); //only copy the last updated copy to the cpu
 }
 
-void gpuComputationShared8thOrder(std::vector<float> &hInitialCondition, const simParams &params, std::vector<float> &hResults) {
+template<typename floatType, int order, int borderSize>
+void gpuSharedComputation(std::vector<floatType> &hInitialCondition, const simParams &params, std::vector<floatType> &hResults) {
+    thrust::device_vector<floatType> dGridVec = hInitialCondition;
+    floatType * dGrid = thrust::raw_pointer_cast(&dGridVec[0]);
+
+    int totalSize = params.gx() * params.gy();
+    dim3 threads(16, 16);
+    const int numThreads = 256;
+    assert(numThreads == threads.x*threads.y); 
+    dim3 blocks(1, 1);
+    int curr = 0;
+    int prev = 1;
+    event_pair timer;
+    start_timer(&timer);
+    
+    const int side = 16;
+    const int usefulSide = side - 2*borderSize;
+
+    blocks.x = ( int(params.nx()) + usefulSide - 1)/usefulSide;
+    blocks.y = ( int(params.ny()) + usefulSide - 1)/usefulSide;      
+
+    for (int i = 0; i < params.iters(); ++i) {
+        prev = curr;
+        curr ^= 1; //binary XOR    
+        // The template arg of gpuShared: <floatType, side, usefulSide, borderSize, 2, numThreads>
+        gpuShared<floatType, side, usefulSide, borderSize, order, numThreads><<<blocks, threads>>>
+            (dGrid + curr * totalSize, dGrid + prev * totalSize, params.gx(), params.gy(), params.nx(), params.ny(), params.xcfl(), params.ycfl());
+        if(order == 2)     {check_launch("Shared 2ndOrderStencil");}
+        else if(order == 4){check_launch("Shared 4thOrderStencil");}
+        else if(order == 8){check_launch("Shared 8thOrderStencil");}
+    }
+    
+    stop_timer(&timer, "gpu shared computation float");
+    hResults.resize(totalSize);
+    thrust::copy(dGridVec.begin() + curr * totalSize, dGridVec.end() - prev * totalSize, hResults.begin()); //only copy the last updated copy to the cpu
+}
+
+template<typename floatType>
+void gpuComputationShared8thOrder(std::vector<floatType> &hInitialCondition, const simParams &params, std::vector<floatType> &hResults) {
     const int borderSize = 4;
     assert(borderSize == params.borderSize()); //we hard code the borderSize so that we can use it with templates
                                                //but make sure that the value in the parameters agrees with us, just in case
-
     //TODO: Everything else is up to you
+    gpuSharedComputation<floatType, 8, borderSize>(hInitialCondition, params, hResults);
 }
 
-void gpuComputationShared4thOrder(std::vector<float> &hInitialCondition, const simParams &params, std::vector<float> &hResults) {
+template<typename floatType>
+void gpuComputationShared4thOrder(std::vector<floatType> &hInitialCondition, const simParams &params, std::vector<floatType> &hResults) {
     const int borderSize = 2;
     assert(borderSize == params.borderSize()); //we hard code the borderSize so that we can use it with templates
                                                //but make sure that the value in the parameters agrees with us, just in case
-
     //TODO: Everything else is up to you
+    gpuSharedComputation<floatType, 4, borderSize>(hInitialCondition, params, hResults);
 }
 
-void gpuComputationShared2ndOrder(std::vector<float> &hInitialCondition, const simParams &params, std::vector<float> &hResults) {
+template<typename floatType>
+void gpuComputationShared2ndOrder(std::vector<floatType> &hInitialCondition, const simParams &params, std::vector<floatType> &hResults) {
     const int borderSize = 1;
     assert(borderSize == params.borderSize()); //we hard code the borderSize so that we can use it with templates
                                                //but make sure that the value in the parameters agrees with us, just in case
-
     //TODO: Everything else is up to you
+    gpuSharedComputation<floatType, 2, borderSize>(hInitialCondition, params, hResults);
 }
 
 template<typename floatType>
@@ -633,21 +707,23 @@ int main(int argc, char *argv[])
     cpuComputation(grid, params);
     grid.saveStateToFile("final_cpu");
 
-    std::vector<FloatType> hOutput;
-    gpuComputation<FloatType>(hInitialCondition, params, hOutput);
-    checkErrors(grid, hOutput, params);
-    outputGrid(hOutput, params, "final_gpu_simple");
+    std::vector<FloatType> hGlobalOutput;
+    std::vector<FloatType> hSharedOutput;
+
+    gpuComputation<FloatType>(hInitialCondition, params, hGlobalOutput);
+    checkErrors(grid, hGlobalOutput, params);
+    outputGrid(hGlobalOutput, params, "final_gpu_simple");
     
-    //if (params.order() == 2)
-        //gpuComputationShared2ndOrder(hInitialConditionShared, params, hOutput);
-    //else if (params.order() == 4)
-        //gpuComputationShared4thOrder(hInitialConditionShared, params, hOutput);
-    //else if (params.order() == 8)
-        //gpuComputationShared8thOrder(hInitialConditionShared, params, hOutput);
+    if (params.order() == 2)
+        gpuComputationShared2ndOrder<FloatType>(hInitialConditionShared, params, hSharedOutput);
+    else if (params.order() == 4)
+        gpuComputationShared4thOrder<FloatType>(hInitialConditionShared, params, hSharedOutput);
+    else if (params.order() == 8)
+        gpuComputationShared8thOrder<FloatType>(hInitialConditionShared, params, hSharedOutput);
 
-    //checkErrors(grid, hOutput, params);
+    checkErrors(grid, hSharedOutput, params);
 
-    //outputGrid(hOutput, params, "final_gpu_shared");
+    outputGrid(hSharedOutput, params, "final_gpu_shared");
 
     return 0;
 }
