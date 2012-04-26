@@ -463,17 +463,19 @@ void gpuGlobal(floatType *curr, floatType *prev, int gx, int gy, int nx, int ny,
 //because only the stencil computation differs between the different kernels
 //we don't want to duplicate all that code, BUT we also don't want to introduce a ton of
 //if statements inside the kernel.  So we use a template to compile only the correct code
-template<typename floatType, int side, int usefulSide, int borderSize, int order, int numThreads>
+template<typename floatType, int x_side, int x_usefulSide, int y_side, int y_usefulSide,int borderSize, int order, int numThreads>
 __global__
 void gpuShared(floatType *curr, floatType *prev, int gx, int gy, int nx, int ny, floatType xcfl, floatType ycfl)
 {
-    __shared__ floatType smem[side][side+1];
+    __shared__ floatType smem[y_side][x_side+1];
     //TODO: figure out where this block should load from
-    unsigned int global_x = threadIdx.x + blockIdx.x * usefulSide;
-    unsigned int global_y = threadIdx.y + blockIdx.y * usefulSide;
+    unsigned int global_x = threadIdx.x + blockIdx.x * x_usefulSide;
+    unsigned int global_y = threadIdx.y + blockIdx.y * y_usefulSide;
     
     //TODO: load into our shared memory
-    if(global_x<gx && global_y<gy){smem[threadIdx.y][threadIdx.x] = prev[global_y*gx + global_x];}
+    for( int j=0;j<(y_side+blockDim.y-1)/blockDim.y;++j){
+        if(global_x<gx && (global_y+j*blockDim.y)<gy){smem[threadIdx.y+j*blockDim.y][threadIdx.x] = prev[(global_y+j*blockDim.y)*gx + global_x];}
+    }
     __syncthreads();
 
     //now that everything is loaded is smem, do the stencil calculation, we can store directly to global memory if we make sure to coalesce
@@ -481,8 +483,9 @@ void gpuShared(floatType *curr, floatType *prev, int gx, int gy, int nx, int ny,
     
     unsigned int local_x = threadIdx.x + borderSize;
     unsigned int local_y = threadIdx.y + borderSize;
-    
-    if(global_x<nx && global_y<ny && threadIdx.x<usefulSide && threadIdx.y<usefulSide){
+
+    for( int j=0;j<(y_side+blockDim.y-1)/blockDim.y;++j){
+    if(global_x<nx && global_y<ny && threadIdx.x<x_usefulSide && threadIdx.y+j*blockDim.y<y_usefulSide){
                     if (order == 2) {
                         curr[(global_y+borderSize)*gx + global_x+borderSize] = smem[local_y][local_x] 
                              + xcfl * ( smem[local_y][local_x+1] + smem[local_y][local_x-1] - 2 * smem[local_y][local_x]) 
@@ -506,7 +509,9 @@ void gpuShared(floatType *curr, floatType *prev, int gx, int gy, int nx, int ny,
                                        - 1008 *  smem[local_y-2][local_x] + 128   *  smem[local_y-3][local_x] - 9    *  smem[local_y-4][local_x] );
                     }
             }
-       
+        local_y  += (blockDim.y);
+        global_y += (blockDim.y);
+    }
 }
 
 //For the non-shared version we've given a mostly complete implementation of the host function
@@ -564,8 +569,8 @@ void gpuSharedComputation(std::vector<floatType> &hInitialCondition, const simPa
     floatType * dGrid = thrust::raw_pointer_cast(&dGridVec[0]);
 
     int totalSize = params.gx() * params.gy();
-    dim3 threads(16, 16);
-    const int numThreads = 256;
+    dim3 threads(128, 4);
+    const int numThreads = 512;
     assert(numThreads == threads.x*threads.y); 
     dim3 blocks(1, 1);
     int curr = 0;
@@ -573,17 +578,19 @@ void gpuSharedComputation(std::vector<floatType> &hInitialCondition, const simPa
     event_pair timer;
     start_timer(&timer);
     
-    const int side = 16;
-    const int usefulSide = side - 2*borderSize;
+    const int x_side = 128;
+    const int x_usefulSide = x_side - 2*borderSize;
+    const int y_side = 92; 
+    const int y_usefulSide = y_side - 2*borderSize;
 
-    blocks.x = ( int(params.nx()) + usefulSide - 1)/usefulSide;
-    blocks.y = ( int(params.ny()) + usefulSide - 1)/usefulSide;      
+    blocks.x = ( int(params.nx()) + x_usefulSide - 1)/x_usefulSide;
+    blocks.y = ( int(params.ny()) + y_usefulSide - 1)/y_usefulSide;      
 
     for (int i = 0; i < params.iters(); ++i) {
         prev = curr;
         curr ^= 1; //binary XOR    
         // The template arg of gpuShared: <floatType, side, usefulSide, borderSize, 2, numThreads>
-        gpuShared<floatType, side, usefulSide, borderSize, order, numThreads><<<blocks, threads>>>
+        gpuShared<floatType, x_side, x_usefulSide, y_side, y_usefulSide, borderSize, order, numThreads><<<blocks, threads>>>
             (dGrid + curr * totalSize, dGrid + prev * totalSize, params.gx(), params.gy(), params.nx(), params.ny(), params.xcfl(), params.ycfl());
         if(order == 2)     {check_launch("Shared 2ndOrderStencil");}
         else if(order == 4){check_launch("Shared 4thOrderStencil");}
