@@ -63,12 +63,12 @@ struct apply_shift : thrust::binary_function<unsigned char, unsigned int, unsign
 struct periodic_shifts_fun : thrust::unary_function<unsigned int, size_t> 
 { 
     const unsigned int period; 
-    thrust::device_vector<unsigned int>::iterator shifts;
-    periodic_shifts_fun(const unsigned int period, thrust::device_vector<unsigned int>::iterator shifts ) : period(period), shifts(shifts) {} 
+    unsigned int * shifts;
+    periodic_shifts_fun(const unsigned int period, unsigned int * shifts) : period(period), shifts(shifts){} 
     __host__ __device__ 
     unsigned int operator()(const size_t i) 
     { 
-        return shifts * i % period; 
+        return shifts[i % period]; 
     } 
 }; 
 
@@ -123,23 +123,14 @@ int main(int argc, char **argv) {
 
     thrust::device_vector<unsigned char> device_cipher_text(numElements);
 
-    // Need to be deleted.
-    thrust::device_vector<unsigned int> periodic_shifts(numElements);
-
-
     //TODO: Again, with one thrust call, create the cipher text from the plaintext     
     thrust::transform_iterator<periodic_shifts_fun, thrust::counting_iterator<size_t>  > 
-        periodic_shifts_host = thrust::make_transform_iterator(  thrust::make_counting_iterator((size_t)0),
-                                                                 periodic_shifts_fun(period, shifts.begin() )); 
-    for(int i = 0; i<numElements; i++)
-    {
-        periodic_shifts[i] = periodic_shifts_host[i];
-       // std::cout<<periodic_shifts[i]<<"  "<<periodic_shifts[i]<<std::endl;
-    }
-    
+        periodic_shifts_iter = thrust::make_transform_iterator(  thrust::make_counting_iterator((size_t)0),
+                                                                 periodic_shifts_fun(period, thrust::raw_pointer_cast(&shifts[0]))); 
+                    
     thrust::transform(  plain_text.begin(), 
                         plain_text.begin() + numElements, 
-                        periodic_shifts_host
+                        periodic_shifts_iter,
                         device_cipher_text.begin(), apply_shift());
 
     thrust::host_vector<unsigned char> host_cipher_text = device_cipher_text;
