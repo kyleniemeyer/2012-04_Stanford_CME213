@@ -248,7 +248,7 @@ int main(int argc, char **argv) {
     }
     std::cout<<"\nKey: ";
     for(int i=0;i<keyLength;++i){ std::cout<<(unsigned char) ((dShifts[i]==26)?'z': dShifts[i] +'a');}
-    std::cout<<"\n\m";
+    std::cout<<"\n\n";
         
     thrust::device_vector<unsigned char> d_plain_text(text.size());
 

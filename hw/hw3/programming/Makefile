@@ -1,6 +1,6 @@
 
 ifdef DEBUG
-	NVCCFLAGS=-arch=sm_20 -g -G
+	NVCCFLAGS=-arch=sm_20 -g 
 else
 	NVCCFLAGS=-O3 -arch=sm_20
 endif
