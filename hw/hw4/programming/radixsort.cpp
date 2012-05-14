@@ -34,31 +34,83 @@ void radixSortParallelScatterBlock(const std::vector<uint>::iterator blockStart,
 
 void radixSortParallelPass(std::vector<uint> &keys, std::vector<uint> &sorted, uint numBits, uint startBit, uint blockSize)
 {
-    /* PARALLEL SECTION */
-    //go over each block and compute its local histogram
-    //UPSWEEP 1
+    uint numBuckets = 1 << numBits;
+    uint mask = numBuckets - 1;
 
-    /* SERIAL SECTION */
-    //then reduce all the local histograms into a global one
-    //UPSWEEP 2
+    std::vector<uint> histogramRadixFrequency(numBuckets, 0);
+    #pragma omp parallel for shared(keys, startBit, mask, histogramRadixFrequency)
+    for (int i = 0; i < keys.size(); ++i) 
+    {
+        uint key = (keys[i] >> startBit) & mask;
+        #pragma omp atomic 
+        histogramRadixFrequency[key] += 1;
+    }
 
-    //now we scan this global histogram
-    //SCAN
+    size_t loop = (numBuckets+blockSize-1)/blockSize;
+    //    std::cout<<"loop:"<<loop<<"numBuckets"<<numBuckets<<"blocksize"<<blockSize<<"\n"    ;
 
-    //now we take this global scan and push the values back down
-    //to the local histograms
-    //DOWNSWEEP 2
+    std::vector<uint> scan(loop);
+    #pragma omp parallel for shared(scan, blockSize, loop, keys, histogramRadixFrequency, numBuckets)
+    for (int i = 0; i < loop; ++i)
+    { 
+        int index = (i!=loop-1)?(blockSize):(numBuckets-i*blockSize);
+        for(int j=0; j < index; ++j)
+        {
+            scan[i] += histogramRadixFrequency[j + i*blockSize];
+        }
+    }
+    int sum = 0;
+    for(int i = 0; i < loop; ++i)
+    {
+        int x = scan[i];
+        scan[i] = sum;
+        sum += x;
+    }
+    // std::cout<<"sdfd\n\n";
+    
+    #pragma omp parallel for shared(scan, blockSize, loop, keys, histogramRadixFrequency, numBuckets)
+    for (int i = 0; i < loop; ++i)
+    {        //std::cout<<"sdfd\n\n";
+
+        int sum = 0;
+        int index = (i!=loop-1)?(blockSize):(numBuckets-i*blockSize);
+        for(int j=0; j < index; ++j)
+        {
+            int x = histogramRadixFrequency[j + i*blockSize];
+            histogramRadixFrequency[j + i*blockSize] = sum + scan[i];
+            sum += x;
+        }
+    }
+
+    std::vector<uint> localOffsetArray(numBuckets, 0);
 
     /* PARALLEL SECTION */
     //finally we take the local histograms and use them to compute
     //the scatter offset for each key in the block and
     //put the value in its final position
     //DOWNSWEEP 1
+    
+    //now add the local to the global and scatter the result
+    for (int i = 0; i < keys.size(); ++i) {
+        uint key = (keys[i] >> startBit) & mask;
+
+        uint localOffset = localOffsetArray[key]++;
+        uint globalOffset = histogramRadixFrequency[key] + localOffset;
+       //  std::cout<<i<<"sdfddd\n\n";
+
+        sorted[globalOffset] = keys[i];
+        
+    }
 }
 
 int radixSortParallel(std::vector<uint> &keys, std::vector<uint> &keys_tmp, uint numBits)
-{
-    //TODO
+{         
+    assert(numBits <= 16);
+    int blockSize = 32;
+    for (int startBit = 0; startBit < 32; startBit += 2 * numBits) {
+        radixSortParallelPass(keys,     keys_tmp, numBits, startBit,         blockSize);
+        radixSortParallelPass(keys_tmp, keys,     numBits, startBit+numBits, blockSize);
+    }
 }
 
 void radixSortSerialPass(std::vector<uint> &keys, std::vector<uint> &keys_radix, uint startBit, uint numBits)
@@ -67,7 +119,7 @@ void radixSortSerialPass(std::vector<uint> &keys, std::vector<uint> &keys_radix,
     uint mask = numBuckets - 1;
 
     //compute the frequency histogram
-    std::vector<uint> histogramRadixFrequency(numBuckets);
+    std::vector<uint> histogramRadixFrequency(numBuckets,0);
     for (int i = 0; i < keys.size(); ++i) {
         uint key = (keys[i] >> startBit) & mask;
         ++histogramRadixFrequency[key];
@@ -101,10 +153,15 @@ int radixSortSerial(std::vector<uint> &keys, std::vector<uint> &keys_radix, uint
     }
 }
 
-
-int main(void)
+int main(int argc, char **argv)
 {
-    std::vector<uint> keys(40000000);
+    int n_elements = 40000000;
+    int numBits = 16;
+    if (argc == 2) { n_elements = atoi(argv[1]);}
+    if (argc == 3) { numBits = atoi(argv[2]); n_elements = atoi(argv[1]);}
+    std::cout<<"n_elements: "<<n_elements<<"\nnumBits: "<<numBits<<"\n";
+    
+    std::vector<uint> keys(n_elements);
 
     for (int i = 0; i < keys.size(); ++i) {
         keys[i] = rand();
@@ -126,7 +183,7 @@ int main(void)
     //the same number of bits.  In that case, the final sorted result might not
     //be in keys_serial, but keys_pingpong
     double startRadixSerial = omp_get_wtime();
-    radixSortSerial(keys_serial, keys_pingpong, 16);
+    radixSortSerial(keys_serial, keys_pingpong, numBits);
     double endRadixSerial = omp_get_wtime();
 
     for (int i = 0; i < keys.size(); ++i) {
@@ -138,7 +195,7 @@ int main(void)
     //same thing, if we do an odd number of passes, the result might be in
     //keys_pingpong, not keys
     double startRadixParallel = omp_get_wtime();
-    radixSortParallel(keys, keys_pingpong, 16);
+    radixSortParallel(keys, keys_pingpong, numBits);
     double endRadixParallel = omp_get_wtime();
 
     for (int i = 0; i < keys.size(); ++i) {
