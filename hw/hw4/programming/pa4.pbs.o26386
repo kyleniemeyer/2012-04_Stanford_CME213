@@ -1,0 +1,102 @@
+/home/dbtsai/2012-04_stanford_cme213/hw/hw4/programming
+rm mergesort radixsort
+g++ -o mergesort -O3 mergesort.cpp -fopenmp
+g++ -o radixsort -O3 radixsort.cpp -fopenmp
+\n
+1
+n_elements: 1000000
+numBits: 8
+stl: 4.1352
+serial radix: 13.2654
+BlockSize:8192
+parallel radix: 13.3586
+n_elements: 16000000
+numBits: 8
+stl: 68.4979
+serial radix: 212.575
+BlockSize:8192
+parallel radix: 215.71
+\n
+2
+n_elements: 1000000
+numBits: 8
+stl: 0.098524
+serial radix: 0.021679
+BlockSize:8192
+parallel radix: 0.016048
+n_elements: 16000000
+numBits: 8
+stl: 1.88632
+serial radix: 1.78446
+BlockSize:8192
+parallel radix: 1.88242
+\n
+4
+n_elements: 1000000
+numBits: 8
+stl: 0.098747
+serial radix: 0.021832
+BlockSize:8192
+parallel radix: 0.012649
+n_elements: 16000000
+numBits: 8
+stl: 6.04617
+serial radix: 1.31129
+BlockSize:8192
+parallel radix: 0.959103
+\n
+8
+n_elements: 1000000
+numBits: 8
+stl: 0.098465
+serial radix: 0.021744
+BlockSize:8192
+parallel radix: 0.009506
+n_elements: 16000000
+numBits: 8
+stl: 5.07941
+serial radix: 1.3832
+BlockSize:8192
+parallel radix: 1.01097
+\n
+16
+n_elements: 1000000
+numBits: 8
+stl: 0.09853
+serial radix: 0.021675
+BlockSize:8192
+parallel radix: 0.010869
+n_elements: 16000000
+numBits: 8
+stl: 1.88686
+serial radix: 1.83201
+BlockSize:8192
+parallel radix: 0.461521
+\n
+32
+n_elements: 1000000
+numBits: 8
+stl: 0.098297
+serial radix: 0.021872
+BlockSize:8192
+parallel radix: 0.016106
+n_elements: 16000000
+numBits: 8
+stl: 5.66568
+serial radix: 1.27142
+BlockSize:8192
+parallel radix: 0.953315
+\n
+64
+n_elements: 1000000
+numBits: 8
+stl: 0.098722
+serial radix: 0.021821
+BlockSize:8192
+parallel radix: 0.023591
+n_elements: 16000000
+numBits: 8
+stl: 5.98497
+serial radix: 1.36731
+BlockSize:8192
+parallel radix: 0.452478

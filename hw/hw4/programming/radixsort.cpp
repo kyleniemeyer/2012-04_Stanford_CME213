@@ -111,8 +111,9 @@ void radixSortParallelPass(std::vector<uint> &keys, std::vector<uint> &sorted, u
 int radixSortParallel(std::vector<uint> &keys, std::vector<uint> &keys_tmp, uint numBits)
 {         
     assert(numBits <= 16);
-    int n_loop = 32;
-    int blockSize = (keys.size()+n_loop-1)/n_loop; std::cout<<"BlockSize:"<<blockSize<<"\n";
+   // int n_loop = 128;
+    int blockSize = 8192;//(keys.size()+n_loop-1)/n_loop; 
+    std::cout<<"BlockSize:"<<blockSize<<"\n";
     for (int startBit = 0; startBit < 32; startBit += 2 * numBits) {
         radixSortParallelPass(keys,     keys_tmp, numBits, startBit,         blockSize);
         radixSortParallelPass(keys_tmp, keys,     numBits, startBit+numBits, blockSize);
