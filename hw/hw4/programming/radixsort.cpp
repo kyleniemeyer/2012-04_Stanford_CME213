@@ -15,7 +15,6 @@
 #include <iostream>
 #include <stdlib.h>
 #include <assert.h>
-
 #include "omp.h"
 
 typedef unsigned int uint;
@@ -23,44 +22,21 @@ typedef unsigned int uint;
 void radixSortParallelHistoBlock(const std::vector<uint>::iterator blockStart, const std::vector<uint>::iterator blockEnd,
                                 uint *histo, uint startBit, uint numBits)
 {    
-    uint num_threads = omp_get_max_threads();
-    uint numBuckets = 1 << numBits;
-    uint mask = numBuckets - 1;
-    std::vector<uint> local_histogram(num_threads*numBuckets);
-    #pragma omp parallel
+    uint mask = (1 << numBits) - 1;
+    for(int i = 0; i < blockEnd - blockStart; ++i)
     {
-        int tid = omp_get_thread_num();
-        #pragma omp for
-        for(int i = 0; i < blockEnd - blockStart; ++i)
-        {
-            uint key = (*(blockStart+i) >> startBit) & mask;
-            local_histogram[tid*numBuckets + key]++;
-        }
-        #pragma omp for
-        for(int i = 0; i < numBuckets; ++i)
-        {
-            for(int j = 0; j < num_threads; ++j)
-            {
-                histo[i] += local_histogram[j*numBuckets + i];
-            }
-        }
+        uint key = (*(blockStart+i) >> startBit) & mask;
+        histo[key]++;
     }
 }
 
 void radixSortParallelScatterBlock(const std::vector<uint>::iterator blockStart, const std::vector<uint>::iterator blockEnd,
                                    uint *globalScan, std::vector<uint> &output, uint startBit, uint numBits)
 {
-    uint num_threads = omp_get_max_threads();
-    uint numBuckets = 1 << numBits;
-    uint mask = numBuckets - 1;
-std::vector<uint> histogramRadixFrequency(numBuckets, 0);
-
-  for (int i = 0; i < blockEnd - blockStart; ++i) {
+    uint mask = (1 << numBits) - 1;
+    for (int i = 0; i < blockEnd - blockStart; ++i) {
         uint key = (*(blockStart+i) >> startBit) & mask;
-
-        uint localOffset = histogramRadixFrequency[key]++;
-        uint globalOffset = globalScan[key] + localOffset;
-
+        uint globalOffset = globalScan[key]++;
         output[globalOffset] = *(blockStart+i);        
     }
 }
@@ -68,68 +44,75 @@ std::vector<uint> histogramRadixFrequency(numBuckets, 0);
 void radixSortParallelPass(std::vector<uint> &keys, std::vector<uint> &sorted, uint numBits, uint startBit, uint blockSize)
 {
     uint numBuckets = 1 << numBits;
-    uint mask = numBuckets - 1;
 
-    std::vector<uint> histogramRadixFrequency(numBuckets, 0);
-    radixSortParallelHistoBlock(keys.begin(),keys.end(),&histogramRadixFrequency[0], startBit, numBits);
-    
-
-    //size_t loop = (numBuckets+blockSize-1)/blockSize;
-    ////    std::cout<<"loop:"<<loop<<"numBuckets"<<numBuckets<<"blocksize"<<blockSize<<"\n"    ;
-
-    //std::vector<uint> scan(loop);
-    //#pragma omp parallel for shared(scan, blockSize, loop, keys, histogramRadixFrequency, numBuckets)
-    //for (int i = 0; i < loop; ++i)
-    //{ 
-        //int index = (i!=loop-1)?(blockSize):(numBuckets-i*blockSize);
-        //for(int j=0; j < index; ++j)
-        //{
-            //scan[i] += histogramRadixFrequency[j + i*blockSize];
-        //}
-    //}
-    //int sum = 0;
-    //for(int i = 0; i < loop; ++i)
-    //{
-        //int x = scan[i];
-        //scan[i] = sum;
-        //sum += x;
-    //}
-    //// std::cout<<"sdfd\n\n";
-    
-    //#pragma omp parallel for shared(scan, blockSize, loop, keys, histogramRadixFrequency, numBuckets)
-    //for (int i = 0; i < loop; ++i)
-    //{        //std::cout<<"sdfd\n\n";
-
-        //int sum = 0;
-        //int index = (i!=loop-1)?(blockSize):(numBuckets-i*blockSize);
-        //for(int j=0; j < index; ++j)
-        //{
-            //int x = histogramRadixFrequency[j + i*blockSize];
-            //histogramRadixFrequency[j + i*blockSize] = sum + scan[i];
-            //sum += x;
-        //}
-    //}
-
-    //std::vector<uint> localOffsetArray(numBuckets, 0);
-    //now scan it
-    std::vector<uint> exScanHisto(numBuckets, 0);
-    for (int i = 1; i < numBuckets; ++i) {
-        exScanHisto[i] = exScanHisto[i-1] + histogramRadixFrequency[i-1];
+    /* PARALLEL SECTION */
+    //go over each block and compute its local histogram
+    //UPSWEEP 1
+    uint num_threads = (keys.size() + blockSize -1)/blockSize;
+    std::vector<uint> local_histogram(num_threads*numBuckets);
+    #pragma omp parallel for 
+    for( int i = 0; i < num_threads; ++i)
+    {
+        radixSortParallelHistoBlock(keys.begin()+i*blockSize, (i==(num_threads-1))? keys.end(): keys.begin()+(i+1)*blockSize , 
+                                    &local_histogram[i*numBuckets], startBit, numBits);
     }
-
-
+    
+    std::vector<uint> histogramRadixFrequency(numBuckets);
+    /* SERIAL SECTION */
+    //then reduce all the local histograms into a global one
+    //UPSWEEP 2
+    #pragma omp parallel for 
+    for(int i = 0; i < numBuckets; ++i)
+    {
+        for(int j = 0; j < num_threads; ++j)
+        {
+            histogramRadixFrequency[i] += local_histogram[j*numBuckets + i];
+        }
+    }
+    //now we scan this global histogram
+    //SCAN
+    // Although we can parallelize this part, but it's very small, 
+    // and the overhead will actually show down the computation
+    int sum = 0;
+    for (int i = 0; i < numBuckets; ++i) {
+        int x = histogramRadixFrequency[i];
+        histogramRadixFrequency[i] = sum;
+        sum += x;
+    }
+    //now we take this global scan and push the values back down
+    //to the local histograms
+    //DOWNSWEEP 2
+    std::vector<uint> local_histogram_final(num_threads*numBuckets);
+    for(int j = 0; j < numBuckets; ++j)
+    {
+            local_histogram_final[j] = histogramRadixFrequency[j];
+    }
+    for(int i = 1; i < num_threads ; ++i)
+    {   
+        //#pragma omp parallel for 
+        for(int j = 0; j < numBuckets; ++j)
+        {
+            local_histogram_final[i*numBuckets + j] = local_histogram_final[(i-1)*numBuckets + j] + local_histogram[(i-1)*numBuckets + j];
+        }
+    }
     /* PARALLEL SECTION */
     //finally we take the local histograms and use them to compute
     //the scatter offset for each key in the block and
     //put the value in its final position
     //DOWNSWEEP 1
-    radixSortParallelScatterBlock(keys.begin(), keys.end(), &exScanHisto[0], sorted,  startBit,  numBits);
+    #pragma omp parallel for 
+    for( int i = 0; i < num_threads; ++i)
+    {
+        radixSortParallelScatterBlock(keys.begin()+i*blockSize, (i==(num_threads-1))? keys.end(): keys.begin()+(i+1)*blockSize , 
+                                       &local_histogram_final[i*numBuckets], sorted, startBit, numBits);
+    }
 }
 
 int radixSortParallel(std::vector<uint> &keys, std::vector<uint> &keys_tmp, uint numBits)
 {         
     assert(numBits <= 16);
-    int blockSize = 1024;
+    int n_loop = 32;
+    int blockSize = (keys.size()+n_loop-1)/n_loop; std::cout<<"BlockSize:"<<blockSize<<"\n";
     for (int startBit = 0; startBit < 32; startBit += 2 * numBits) {
         radixSortParallelPass(keys,     keys_tmp, numBits, startBit,         blockSize);
         radixSortParallelPass(keys_tmp, keys,     numBits, startBit+numBits, blockSize);
@@ -179,7 +162,7 @@ int radixSortSerial(std::vector<uint> &keys, std::vector<uint> &keys_radix, uint
 int main(int argc, char **argv)
 {
     int n_elements = 40000000;
-    int numBits = 16;
+    int numBits = 8;
     if (argc == 2) { n_elements = atoi(argv[1]);}
     if (argc == 3) { numBits = atoi(argv[2]); n_elements = atoi(argv[1]);}
     std::cout<<"n_elements: "<<n_elements<<"\nnumBits: "<<numBits<<"\n";
