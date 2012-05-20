@@ -130,8 +130,8 @@ simParams::simParams(const char *filename, bool verbose) {
     ifs >> iters_;
     ifs >> order_;
     ifs >> ic_;
-    ifs >> gridMethod_;
     ifs >> synchronous_;
+    ifs >> gridMethod_;
     ifs >> bc[0] >> bc[1] >> bc[2] >> bc[3];
 
     ifs.close();
