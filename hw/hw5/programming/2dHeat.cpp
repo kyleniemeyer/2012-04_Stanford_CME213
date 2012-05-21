@@ -130,8 +130,8 @@ simParams::simParams(const char *filename, bool verbose) {
     ifs >> iters_;
     ifs >> order_;
     ifs >> ic_;
-    ifs >> synchronous_;
     ifs >> gridMethod_;
+    ifs >> synchronous_;
     ifs >> bc[0] >> bc[1] >> bc[2] >> bc[3];
 
     ifs.close();
@@ -267,7 +267,9 @@ Grid::Grid(const simParams &params, bool debug) {
     //need to figure out which processor we are and who our neighbors are...
     int totalNumProcessors;
     //TODO: set ourRank_ and totalNumProcessors
-
+    MPI_SAFE_CALL( MPI_Comm_size(MPI_COMM_WORLD, &totalNumProcessors) );
+	MPI_SAFE_CALL( MPI_Comm_rank(MPI_COMM_WORLD, &ourRank_) );
+	
     //based on total number of processors and grid configuration
     //determine our neighbors
     procLeft_ = -1;
@@ -277,15 +279,102 @@ Grid::Grid(const simParams &params, bool debug) {
 
     //1D decomposition - horizontal stripes
     if (params.gridMethod() == 1) {
-        //TODO: set proc* and nx, ny correctly
+		//TODO: set proc* and nx, ny correctly
+		ny_ = params.ny();
+		nx_ = (params.nx() + totalNumProcessors - 1)/totalNumProcessors;
+
+		if( totalNumProcessors == 1 )
+		{
+			nx_ = params.nx();
+		}
+		else if( ourRank_ == 0 )
+		{
+			procRight_ = ourRank_ + 1;
+		}
+		else if( ourRank_ ==  totalNumProcessors - 1)
+		{
+			procLeft_  = ourRank_ - 1;
+			nx_ = params.nx() - (totalNumProcessors-1)*nx_;
+		}
+		else
+		{	
+			procLeft_  = ourRank_ - 1;
+			procRight_ = ourRank_ + 1;
+		}
+		     	std::cout<<"\ntotP: "<<totalNumProcessors<<" ourRank: "<<ourRank_
+				 <<" procLeft: "<<procLeft_<<" procRight: "<<procRight_
+				 <<" procTop: " <<procTop_ <<" procBot: "<<procBot_<<" nx: "<<nx_<<" ny: "<< ny_<<"\n\n";
+
     }
-    else if (params.gridMethod() == 2) { //2D decomposition
-                                         //you are only required to implement
-                                         //decomposition for square grids of processors
-                                         //ie 1x1, 2x2, 3x3, etc.
-                                         //handling of arbitrary # of processors
-                                         //is extra credit
+    else if (params.gridMethod() == 2) { 
+		//2D decomposition
+        //you are only required to implement decomposition for square grids of processors ie 1x1, 2x2, 3x3, etc.
+        //handling of arbitrary # of processors is extra credit
         //TODO: set proc* and nx, ny correctly
+        int n_grid_x = sqrt(double(totalNumProcessors));
+        int n_grid_y = n_grid_x;
+        assert( n_grid_x*n_grid_y == totalNumProcessors);
+     	
+     	nx_ = (params.nx() + n_grid_x - 1)/n_grid_x;
+     	ny_ = (params.ny() + n_grid_y - 1)/n_grid_y;
+     	     	
+        	
+     	if( totalNumProcessors == 1 )
+		{
+			nx_ = params.nx();
+			ny_ = params.ny();
+		}
+     	else if( ourRank_ % n_grid_x == 0)
+     	{
+			procRight_ = ourRank_ + 1;
+			if( ourRank_ == 0){ procBot_ = ourRank_ + n_grid_x; }
+			else if((ourRank_/n_grid_x + 1) == n_grid_y)
+			{ 
+				ny_      = params.ny() - (n_grid_y-1) * ny_;
+				procTop_ = ourRank_ - n_grid_x; 
+			}
+			else
+			{ 
+				procBot_ = ourRank_ + n_grid_x; 
+				procTop_ = ourRank_ - n_grid_x; 
+			}
+		}
+		else if( ourRank_ < n_grid_x - 1)
+		{
+			procBot_   = ourRank_ + n_grid_x;
+			procRight_ = ourRank_ + 1;
+			procLeft_  = ourRank_ - 1;
+		}
+		else if( (ourRank_ + 1)% n_grid_x == 0)
+		{
+			procLeft_  = ourRank_ - 1;
+			nx_		   = params.nx() - (n_grid_x-1) * nx_;
+			if( ourRank_ == (n_grid_x - 1)){ procBot_ = ourRank_ + n_grid_x; }
+			else if( (ourRank_+1)/n_grid_x == n_grid_y)
+			{ 
+				procTop_ = ourRank_ - n_grid_x; 				
+				ny_      = params.ny() - (n_grid_y-1) * ny_;
+			}
+			else
+			{ 
+				procBot_ = ourRank_ + n_grid_x; 
+				procTop_ = ourRank_ - n_grid_x; 
+			}
+		}
+		else if( ourRank_ > n_grid_x * (n_grid_y-1) )
+		{
+			ny_      = params.ny() - (n_grid_y-1) * ny_;
+			procTop_ = ourRank_ - n_grid_x;
+			procRight_ = ourRank_ + 1;
+			procLeft_  = ourRank_ - 1;
+		}
+		else
+		{
+			procRight_ = ourRank_ + 1;
+			procLeft_  = ourRank_ - 1;
+			procTop_ = ourRank_ - n_grid_x;
+			procBot_   = ourRank_ + n_grid_x;
+		}
     }
     else {
         std::cerr << "Unsupported grid decomposition method! " << params.gridMethod() << std::endl;
@@ -298,7 +387,7 @@ Grid::Grid(const simParams &params, bool debug) {
         borderSize_ = 2;
     else if (params.order() == 8)
         borderSize_ = 4;
-
+std::cout<<"nx:"<<nx_<<" "<<borderSize_<<"\n";
     assert(nx_ > 2 * borderSize_);
     assert(ny_ > 2 * borderSize_);
 
