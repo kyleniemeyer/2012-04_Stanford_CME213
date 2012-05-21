@@ -280,31 +280,27 @@ Grid::Grid(const simParams &params, bool debug) {
     //1D decomposition - horizontal stripes
     if (params.gridMethod() == 1) {
 		//TODO: set proc* and nx, ny correctly
-		ny_ = params.ny();
-		nx_ = (params.nx() + totalNumProcessors - 1)/totalNumProcessors;
+		nx_ = params.nx();
+		ny_ = (params.ny() + totalNumProcessors - 1)/totalNumProcessors;
 
 		if( totalNumProcessors == 1 )
 		{
-			nx_ = params.nx();
+			ny_ = params.ny();
 		}
 		else if( ourRank_ == 0 )
 		{
-			procRight_ = ourRank_ + 1;
+			procBot_ = ourRank_ + 1;
 		}
 		else if( ourRank_ ==  totalNumProcessors - 1)
 		{
-			procLeft_  = ourRank_ - 1;
-			nx_ = params.nx() - (totalNumProcessors-1)*nx_;
+			procTop_  = ourRank_ - 1;
+			ny_ = params.ny() - (totalNumProcessors-1)*ny_;
 		}
 		else
 		{	
-			procLeft_  = ourRank_ - 1;
-			procRight_ = ourRank_ + 1;
+			procTop_  = ourRank_ - 1;
+			procBot_  = ourRank_ + 1;
 		}
-		     	std::cout<<"\ntotP: "<<totalNumProcessors<<" ourRank: "<<ourRank_
-				 <<" procLeft: "<<procLeft_<<" procRight: "<<procRight_
-				 <<" procTop: " <<procTop_ <<" procBot: "<<procBot_<<" nx: "<<nx_<<" ny: "<< ny_<<"\n\n";
-
     }
     else if (params.gridMethod() == 2) { 
 		//2D decomposition
@@ -372,7 +368,7 @@ Grid::Grid(const simParams &params, bool debug) {
 		{
 			procRight_ = ourRank_ + 1;
 			procLeft_  = ourRank_ - 1;
-			procTop_ = ourRank_ - n_grid_x;
+			procTop_   = ourRank_ - n_grid_x;
 			procBot_   = ourRank_ + n_grid_x;
 		}
     }
@@ -387,12 +383,13 @@ Grid::Grid(const simParams &params, bool debug) {
         borderSize_ = 2;
     else if (params.order() == 8)
         borderSize_ = 4;
-std::cout<<"nx:"<<nx_<<" "<<borderSize_<<"\n";
     assert(nx_ > 2 * borderSize_);
     assert(ny_ > 2 * borderSize_);
 
     //TODO: set gx and gy correctly
-   
+    gx_ = nx_ + 2 * borderSize_;
+    gy_ = ny_ + 2 * borderSize_;
+
     if (debug) { 
         printf("%d: (%d, %d) (%d, %d) lft: %d rgt: %d top: %d bot: %d\n", \
                 ourRank_, nx_, ny_, gx_, gy_, procLeft_, procRight_, procTop_, procBot_);
@@ -403,10 +400,48 @@ std::cout<<"nx:"<<nx_<<" "<<borderSize_<<"\n";
 
     //set BCs
     //TODO: fill in locations in grid_ with the correct boundary conditions
-
+    if( procTop_ == -1)
+	{
+		for(int i=0; i<gx_; ++i)
+		{
+			for(int j=0; j<borderSize_; ++j)
+			{
+				grid_[i+j*gx_] = params.topBC();
+			}
+		}
+	}
+	if(procBot_ == -1)
+	{
+		for(int i=0; i<gx_; ++i)
+		{
+			for(int j=0; j<borderSize_; ++j)
+			{
+				grid_[i+gx_*(gy_-1)-j*gx_] = params.bottomBC(); 
+			}
+		}
+	}
+    if(procRight_ == -1)
+    {
+		for(int i=0; i<gy_; ++i)
+		{
+			for(int j=0; j<borderSize_; ++j)
+			{
+				grid_[gx_*(i+1)-1-j] = params.rightBC();
+			}
+		}
+	}
+	if(procLeft_ == -1)
+    {
+		for(int i=0; i<gy_; ++i)
+		{
+			for(int j=0; j<borderSize_; ++j)
+			{
+				grid_[gx_*i+j] = params.leftBC();				
+			}
+		}
+	}
     //create the copy of the grid we need for ping-ponging
     grid_.insert(grid_.end(), grid_.begin(), grid_.end());
-
 }
 
 void Grid::waitForSends() {
