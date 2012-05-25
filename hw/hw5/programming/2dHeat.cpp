@@ -128,7 +128,7 @@ simParams::simParams(const char *filename, bool verbose) {
     ifs >> lx_ >> ly_;
     ifs >> alpha_;
     ifs >> iters_;
-    ifs >> order_;
+    ifs >> order_; assert( order_ == 2 | order_ == 4 | order_ == 8);
     ifs >> ic_;
     ifs >> gridMethod_;
     ifs >> synchronous_;
@@ -238,7 +238,10 @@ class Grid {
 
         std::vector<MPI_Request> send_requests_;
         std::vector<MPI_Request> recv_requests_;
-
+        std::vector<double> recv_right_buffer_;
+        std::vector<double> recv_left_buffer_;
+        std::vector<double> send_right_buffer_;
+        std::vector<double> send_left_buffer_;
         //prevent copying and assignment since they are not implemented
         //and don't make sense for this class
         Grid(const Grid &);
@@ -268,8 +271,8 @@ Grid::Grid(const simParams &params, bool debug) {
     int totalNumProcessors;
     //TODO: set ourRank_ and totalNumProcessors
     MPI_SAFE_CALL( MPI_Comm_size(MPI_COMM_WORLD, &totalNumProcessors) );
-	MPI_SAFE_CALL( MPI_Comm_rank(MPI_COMM_WORLD, &ourRank_) );
-	
+    MPI_SAFE_CALL( MPI_Comm_rank(MPI_COMM_WORLD, &ourRank_) );
+	    
     //based on total number of processors and grid configuration
     //determine our neighbors
     procLeft_ = -1;
@@ -307,14 +310,14 @@ Grid::Grid(const simParams &params, bool debug) {
         //you are only required to implement decomposition for square grids of processors ie 1x1, 2x2, 3x3, etc.
         //handling of arbitrary # of processors is extra credit
         //TODO: set proc* and nx, ny correctly
+        
         int n_grid_x = sqrt(double(totalNumProcessors));
         int n_grid_y = n_grid_x;
         assert( n_grid_x*n_grid_y == totalNumProcessors);
      	
      	nx_ = (params.nx() + n_grid_x - 1)/n_grid_x;
      	ny_ = (params.ny() + n_grid_y - 1)/n_grid_y;
-     	     	
-        	
+     	     	                	
      	if( totalNumProcessors == 1 )
 		{
 			nx_ = params.nx();
@@ -398,6 +401,7 @@ Grid::Grid(const simParams &params, bool debug) {
     //resize and set ICs
     grid_.resize(gx_ * gy_, params.ic());
 
+    int number_of_request = 4;
     //set BCs
     //TODO: fill in locations in grid_ with the correct boundary conditions
     if( procTop_ == -1)
@@ -409,6 +413,7 @@ Grid::Grid(const simParams &params, bool debug) {
 				grid_[i+j*gx_] = params.topBC();
 			}
 		}
+        number_of_request--;
 	}
 	if(procBot_ == -1)
 	{
@@ -419,6 +424,7 @@ Grid::Grid(const simParams &params, bool debug) {
 				grid_[i+gx_*(gy_-1)-j*gx_] = params.bottomBC(); 
 			}
 		}
+        number_of_request--;
 	}
     if(procRight_ == -1)
     {
@@ -429,6 +435,7 @@ Grid::Grid(const simParams &params, bool debug) {
 				grid_[gx_*(i+1)-1-j] = params.rightBC();
 			}
 		}
+        number_of_request--;
 	}
 	if(procLeft_ == -1)
     {
@@ -439,23 +446,104 @@ Grid::Grid(const simParams &params, bool debug) {
 				grid_[gx_*i+j] = params.leftBC();				
 			}
 		}
+        number_of_request--;
 	}
+    send_requests_.resize(number_of_request);
+    recv_requests_.resize(number_of_request);
+    
+    if(procLeft_ != -1)
+    {
+        send_left_buffer_.resize(gy_*borderSize_);       
+        recv_left_buffer_.resize(gy_*borderSize_);
+    }
+    if(procRight_ != -1)
+    {
+        send_right_buffer_.resize(gy_*borderSize_);
+        recv_right_buffer_.resize(gy_*borderSize_);
+    }
     //create the copy of the grid we need for ping-ponging
     grid_.insert(grid_.end(), grid_.begin(), grid_.end());
 }
 
 void Grid::waitForSends() {
-    //TODO
+    MPI_Status status;
+    for(int i=0; i< send_requests_.size(); ++i)
+    {
+        MPI_SAFE_CALL(MPI_Wait(&send_requests_[i], &status));
+    }
 }
 
 void Grid::waitForRecvs() {
-    //TODO
+    MPI_Status status;
+    for(int i=0; i< recv_requests_.size(); ++i)
+    {
+        MPI_SAFE_CALL(MPI_Wait(&recv_requests_[i], &status));
+    }
+    // Copy the recv buffer
+    if(( procRight_ != -1) || (procLeft_ != -1))
+    {
+        for(int i=0; i<gy_; ++i)
+        {
+            for(int j=0; j<borderSize_; ++j)
+            {
+                if( procLeft_!= -1) 
+                {
+                    grid_[prev() * gx_ * gy_ + gx_*i + j] = recv_left_buffer_[i*borderSize_+j];
+                }
+                if( procRight_ != -1)
+                {
+                    grid_[prev() * gx_ * gy_ + gx_*i + j + nx_ + borderSize_] = recv_right_buffer_[i*borderSize_+j];
+                }
+            }
+        }
+    }
 }
 
 //sends from previous to current
 void Grid::transferHaloDataASync() {
-    //we send from the prev grid and receive into the current grid
-    //TODO
+    int i = 0;
+    if( procTop_ != -1)
+    {
+        MPI_SAFE_CALL(MPI_Isend(&grid_[prev() * gx_ * gy_ + gx_*borderSize_], gx_*borderSize_, MPI_DOUBLE, procTop_, 0, MPI_COMM_WORLD, &send_requests_[i]));
+        MPI_SAFE_CALL(MPI_Irecv(&grid_[prev() * gx_ * gy_                  ], gx_*borderSize_, MPI_DOUBLE, procTop_, 0, MPI_COMM_WORLD, &recv_requests_[i]));
+        ++i;
+    }
+    if( procBot_ != -1)
+    {
+        MPI_SAFE_CALL(MPI_Isend(&grid_[prev() * gx_ * gy_ + (gy_-2*borderSize_) * gx_], gx_*borderSize_, MPI_DOUBLE, procBot_, 0, MPI_COMM_WORLD, &send_requests_[i]));
+        MPI_SAFE_CALL(MPI_Irecv(&grid_[prev() * gx_ * gy_ + (gy_-  borderSize_) * gx_], gx_*borderSize_, MPI_DOUBLE, procBot_, 0, MPI_COMM_WORLD, &recv_requests_[i]));
+        ++i;
+    }
+    // Copy the send buffer
+    if(( procRight_ != -1) || (procLeft_ != -1))
+    {
+        for(int i=0; i<gy_; ++i)
+        {
+            for(int j=0; j<borderSize_; ++j)
+            {
+                if( procLeft_ != -1) 
+                {
+                    send_left_buffer_[i*borderSize_+j]  = grid_[prev() * gx_ * gy_ + gx_*i + j + borderSize_];
+                }
+                if( procRight_!= -1)
+                {
+                    send_right_buffer_[i*borderSize_+j] = grid_[prev() * gx_ * gy_ + gx_*i + j + nx_];
+                }
+            }
+        }
+    }
+    if( procRight_ != -1)
+    {   
+        MPI_SAFE_CALL(MPI_Isend(&send_right_buffer_[0], send_right_buffer_.size(), MPI_DOUBLE, procRight_, 0, MPI_COMM_WORLD, &send_requests_[i]));
+        MPI_SAFE_CALL(MPI_Irecv(&recv_right_buffer_[0], recv_right_buffer_.size(), MPI_DOUBLE, procRight_, 0, MPI_COMM_WORLD, &recv_requests_[i]));
+        ++i;
+    }
+    if( procLeft_ != -1)
+    {   // Copy the send buffer
+        MPI_SAFE_CALL(MPI_Isend(&send_left_buffer_[0], send_left_buffer_.size(), MPI_DOUBLE, procLeft_, 0, MPI_COMM_WORLD, &send_requests_[i]));
+        MPI_SAFE_CALL(MPI_Irecv(&recv_left_buffer_[0], recv_left_buffer_.size(), MPI_DOUBLE, procLeft_, 0, MPI_COMM_WORLD, &recv_requests_[i]));
+        ++i;
+    }
 }
 
 void Grid::saveStateToFile(std::string identifier) const {
@@ -494,6 +582,115 @@ inline double stencil8(const Grid &grid, int x, int y, double xcfl, double ycfl,
 
 void syncComputation(Grid &grid, const simParams &params) {
     //TODO
+    MPI_Status status;
+    MPI_Request send_right_request, send_left_request, send_top_request, send_bot_request;
+    MPI_Request recv_right_request, recv_left_request, recv_top_request, recv_bot_request;
+
+    for(int i=0; i< params.iters(); ++i)
+    {
+        grid.swapState();
+        const Grid::gridState& curr = grid.curr();
+        const Grid::gridState& prev = grid.prev();
+        grid.transferHaloDataASync();
+        grid.waitForSends();
+        grid.waitForRecvs();
+              
+        if (params.order() == 2) 
+        {
+            for (int y = 2*grid.borderSize(); y < grid.ny(); ++y) 
+            {
+                for (int x = 2*grid.borderSize(); x < grid.nx(); ++x) 
+                {
+                    grid(curr, x, y) = stencil2(grid, x, y, params.xcfl(), params.ycfl(), prev);
+                }
+            }
+            // Top and Bottom  
+            for (int y = 0; y < grid.borderSize(); ++y) 
+            {   
+                int y1 = y + grid.borderSize();
+                int y2 = y + grid.ny();
+                for (int x = grid.borderSize(); x < grid.nx() + grid.borderSize(); ++x) 
+                {
+                    grid(curr, x, y1) = stencil2(grid, x, y1, params.xcfl(), params.ycfl(), prev);
+                    grid(curr, x, y2) = stencil2(grid, x, y2, params.xcfl(), params.ycfl(), prev);
+                }
+            } 
+            // Left and Right
+            for (int y = 2*grid.borderSize(); y < grid.ny(); ++y) 
+            {
+                for (int x = 0; x < grid.borderSize(); ++x) 
+                {
+                    int x1 = x + grid.borderSize();
+                    int x2 = x + grid.nx();
+                    grid(curr, x1, y) = stencil2(grid, x1, y, params.xcfl(), params.ycfl(), prev);
+                    grid(curr, x2, y) = stencil2(grid, x2, y, params.xcfl(), params.ycfl(), prev);
+                }
+            } 
+        }
+        else if (params.order() == 4) {
+            for (int y = 2*grid.borderSize(); y < grid.ny(); ++y) 
+            {
+                for (int x = 2*grid.borderSize(); x < grid.nx(); ++x) 
+                {
+                    grid(curr, x, y) = stencil4(grid, x, y, params.xcfl(), params.ycfl(), prev);
+                }
+            }
+            // Top and Bottom  
+            for (int y = 0; y < grid.borderSize(); ++y) 
+            {   
+                int y1 = y + grid.borderSize();
+                int y2 = y + grid.ny();
+                for (int x = grid.borderSize(); x < grid.nx() + grid.borderSize(); ++x) 
+                {
+                    grid(curr, x, y1) = stencil4(grid, x, y1, params.xcfl(), params.ycfl(), prev);
+                    grid(curr, x, y2) = stencil4(grid, x, y2, params.xcfl(), params.ycfl(), prev);
+                }
+            } 
+            // Left and Right
+            for (int y = 2*grid.borderSize(); y < grid.ny(); ++y) 
+            {
+                for (int x = 0; x < grid.borderSize(); ++x) 
+                {
+                    int x1 = x + grid.borderSize();
+                    int x2 = x + grid.nx();
+                    grid(curr, x1, y) = stencil4(grid, x1, y, params.xcfl(), params.ycfl(), prev);
+                    grid(curr, x2, y) = stencil4(grid, x2, y, params.xcfl(), params.ycfl(), prev);
+                }
+            } 
+        }
+        else if (params.order() == 8) 
+        {
+            for (int y = 2*grid.borderSize(); y < grid.ny(); ++y) 
+            {
+                for (int x = 2*grid.borderSize(); x < grid.nx(); ++x) 
+                {
+                    grid(curr, x, y) = stencil8(grid, x, y, params.xcfl(), params.ycfl(), prev);
+                }
+            }
+            // Top and Bottom 
+            for (int y = 0; y < grid.borderSize(); ++y) 
+            {   
+                int y1 = y + grid.borderSize();
+                int y2 = y + grid.ny();
+                for (int x = grid.borderSize(); x < grid.nx() + grid.borderSize(); ++x) 
+                {
+                    grid(curr, x, y1) = stencil8(grid, x, y1, params.xcfl(), params.ycfl(), prev);
+                    grid(curr, x, y2) = stencil8(grid, x, y2, params.xcfl(), params.ycfl(), prev);
+                }
+            } 
+            // Left and Right
+            for (int y = 2*grid.borderSize(); y < grid.ny(); ++y) 
+            {
+                for (int x = 0; x < grid.borderSize(); ++x) 
+                {
+                    int x1 = x + grid.borderSize();
+                    int x2 = x + grid.nx();
+                    grid(curr, x1, y) = stencil8(grid, x1, y, params.xcfl(), params.ycfl(), prev);
+                    grid(curr, x2, y) = stencil8(grid, x2, y, params.xcfl(), params.ycfl(), prev);
+                }
+            } 
+        }
+    }
 }
 
 void asyncComputation(Grid &grid, const simParams &params) {
@@ -502,6 +699,119 @@ void asyncComputation(Grid &grid, const simParams &params) {
     //the border regions are being transferred.  You should structure this routine so that
     //the transfer starts, the computation on the inner region is performed, then the computation
     //on the halo region is performed after making sure the communication is finished.
+    MPI_Status status;
+    MPI_Request send_right_request, send_left_request, send_top_request, send_bot_request;
+    MPI_Request recv_right_request, recv_left_request, recv_top_request, recv_bot_request;
+
+    for(int i=0; i< params.iters(); ++i)
+    {
+        grid.swapState();
+        const Grid::gridState& curr = grid.curr();
+        const Grid::gridState& prev = grid.prev();
+        grid.transferHaloDataASync();
+                
+        if (params.order() == 2) 
+        {
+            for (int y = 2*grid.borderSize(); y < grid.ny(); ++y) 
+            {
+                for (int x = 2*grid.borderSize(); x < grid.nx(); ++x) 
+                {
+                    grid(curr, x, y) = stencil2(grid, x, y, params.xcfl(), params.ycfl(), prev);
+                }
+            }
+            grid.waitForSends();
+            grid.waitForRecvs();
+            // Top and Bottom  
+            for (int y = 0; y < grid.borderSize(); ++y) 
+            {   
+                int y1 = y + grid.borderSize();
+                int y2 = y + grid.ny();
+                for (int x = grid.borderSize(); x < grid.nx() + grid.borderSize(); ++x) 
+                {
+                    grid(curr, x, y1) = stencil2(grid, x, y1, params.xcfl(), params.ycfl(), prev);
+                    grid(curr, x, y2) = stencil2(grid, x, y2, params.xcfl(), params.ycfl(), prev);
+                }
+            } 
+            // Left and Right
+            for (int y = 2*grid.borderSize(); y < grid.ny(); ++y) 
+            {
+                for (int x = 0; x < grid.borderSize(); ++x) 
+                {
+                    int x1 = x + grid.borderSize();
+                    int x2 = x + grid.nx();
+                    grid(curr, x1, y) = stencil2(grid, x1, y, params.xcfl(), params.ycfl(), prev);
+                    grid(curr, x2, y) = stencil2(grid, x2, y, params.xcfl(), params.ycfl(), prev);
+                }
+            } 
+        }
+        else if (params.order() == 4) {
+            for (int y = 2*grid.borderSize(); y < grid.ny(); ++y) 
+            {
+                for (int x = 2*grid.borderSize(); x < grid.nx(); ++x) 
+                {
+                    grid(curr, x, y) = stencil4(grid, x, y, params.xcfl(), params.ycfl(), prev);
+                }
+            }
+            grid.waitForSends();
+            grid.waitForRecvs();
+            // Top and Bottom  
+            for (int y = 0; y < grid.borderSize(); ++y) 
+            {   
+                int y1 = y + grid.borderSize();
+                int y2 = y + grid.ny();
+                for (int x = grid.borderSize(); x < grid.nx() + grid.borderSize(); ++x) 
+                {
+                    grid(curr, x, y1) = stencil4(grid, x, y1, params.xcfl(), params.ycfl(), prev);
+                    grid(curr, x, y2) = stencil4(grid, x, y2, params.xcfl(), params.ycfl(), prev);
+                }
+            } 
+            // Left and Right
+            for (int y = 2*grid.borderSize(); y < grid.ny(); ++y) 
+            {
+                for (int x = 0; x < grid.borderSize(); ++x) 
+                {
+                    int x1 = x + grid.borderSize();
+                    int x2 = x + grid.nx();
+                    grid(curr, x1, y) = stencil4(grid, x1, y, params.xcfl(), params.ycfl(), prev);
+                    grid(curr, x2, y) = stencil4(grid, x2, y, params.xcfl(), params.ycfl(), prev);
+                }
+            } 
+        }
+        else if (params.order() == 8) 
+        {
+            for (int y = 2*grid.borderSize(); y < grid.ny(); ++y) 
+            {
+                for (int x = 2*grid.borderSize(); x < grid.nx(); ++x) 
+                {
+                    grid(curr, x, y) = stencil8(grid, x, y, params.xcfl(), params.ycfl(), prev);
+                }
+            }
+            grid.waitForSends();
+            grid.waitForRecvs();
+            // Top and Bottom 
+            for (int y = 0; y < grid.borderSize(); ++y) 
+            {   
+                int y1 = y + grid.borderSize();
+                int y2 = y + grid.ny();
+                for (int x = grid.borderSize(); x < grid.nx() + grid.borderSize(); ++x) 
+                {
+                    grid(curr, x, y1) = stencil8(grid, x, y1, params.xcfl(), params.ycfl(), prev);
+                    grid(curr, x, y2) = stencil8(grid, x, y2, params.xcfl(), params.ycfl(), prev);
+                }
+            } 
+            // Left and Right
+            for (int y = 2*grid.borderSize(); y < grid.ny(); ++y) 
+            {
+                for (int x = 0; x < grid.borderSize(); ++x) 
+                {
+                    int x1 = x + grid.borderSize();
+                    int x2 = x + grid.nx();
+                    grid(curr, x1, y) = stencil8(grid, x1, y, params.xcfl(), params.ycfl(), prev);
+                    grid(curr, x2, y) = stencil8(grid, x2, y, params.xcfl(), params.ycfl(), prev);
+                }
+            } 
+        }
+    }
 }
 
 int main(int argc, char *argv[])
