@@ -68,8 +68,9 @@ int main(int argc, char **argv) {
             int s_pos = 0;
             for(int i=0; i<n; ++i)
             {
+                if( i%1000==0) std::cout<<"  ith: "<<i <<" "<< n<<"\n";
                 double sum = 0;
-                
+                while(!( s[s_pos]<=i && s[s_pos] < (i+1))){ s_pos++;}
                 for( int j=s[s_pos]; j<i+1;++j)
                 {
                     sum += cpu_prev[j]*x[k[j]];
