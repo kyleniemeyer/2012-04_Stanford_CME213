@@ -1,0 +1,14 @@
+We have released a modified script.
+
+You can find the matrices directly stored in /usr/tmp/cme213
+
+To avoid having everyone store many large datasets on the cluster, we have released the datasets in an alternative form.
+
+In benchmarksuite, you can find a python script which will generate sample input.
+
+You can generate sample output with 
+Usage: python readMM.py file.mtx q N
+
+For example:
+python readMM.py matrices/cant.mtx 100000 20
+

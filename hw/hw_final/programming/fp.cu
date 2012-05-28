@@ -19,127 +19,91 @@
 #include <thrust/random/uniform_int_distribution.h>
 #include <thrust/generate.h>
 
-struct isnot_lowercase_alpha : thrust::unary_function<bool, unsigned char>{
-    //TODO: fill in this functional
-    __host__ __device__
-    bool operator()(const unsigned char &c)
-    {
-        return ( ('a' > c) || ( 'z' < c) );
-    }
-};
-
-struct upper_to_lower : thrust::unary_function<unsigned char, unsigned char>{
-    //TODO: fill in this functional
-    __host__ __device__
-    unsigned char operator()(const unsigned char &c)
-    {
-        // char upper_a = 'A';
-        // char lower_a = uppera | 0x20;
-        // Note that lower_a == lower_a | 0x20
-        return c | 0x20;
-    }
-};
-
-//This functional has to be initialized with the period and (a pointer) to the table of
-//shifts.  You will need a constructor.
-struct apply_shift : thrust::binary_function<unsigned char, unsigned int, unsigned char> {
-    //TODO: fill in the functional
-    __host__ __device__
-    unsigned char operator()(const unsigned char &c, const unsigned int &shift)
-    {
-        return ((c - 'a') + shift) % 26 + 'a';
-    }
-};
-
-struct periodic_shifts_fun : thrust::unary_function<unsigned int, size_t> 
-{ 
-    const unsigned int period; 
-    unsigned int * shifts;
-    periodic_shifts_fun(const unsigned int period, unsigned int * shifts) : period(period), shifts(shifts){} 
-    __host__ __device__ 
-    unsigned int operator()(const size_t i) 
-    { 
-        return shifts[i % period]; 
-    } 
-}; 
-
 
 int main(int argc, char **argv) {
    if(argc < 3) {
         printf("Run command: ./fp \"file a.txt\" \"file x.txt\"\n");
         exit(0);
     }
+    int cpu_check = 0;
+    cpu_check = atoi(argv[3]);
 
-    std::ifstream ifs(argv[1], std::ios::binary);
-    if (!ifs.good()) {
+    std::ifstream ifs_a(argv[1]);
+    if (!ifs_a.good()) {
         std::cerr << "Couldn't open " << argv[1] << std::endl;
         return 1;
     }
-
-    std::vector<unsigned char> text;
-
-    ifs.seekg(0, std::ios::end); //seek to end of file
-    int length = ifs.tellg();    //get distance from beginning
-    ifs.seekg(0, std::ios::beg); //move back to beginning
-
-    text.resize(length);
-    ifs.read((char *)&text[0], length);
-
-    ifs.close();
-
-    unsigned int period = atoi(argv[2]);
-
-    //sanitize input to contain only a-z lowercase
-    thrust::device_vector<unsigned char> dText = text;
-    thrust::device_vector<unsigned char> plain_text(text.size());
-    
-    //TODO: With one thrust call, generate the cleaned output text which only has lowercase letters
-    //all spaces, etc. removed and uppercase letters converted to lowercase
-    //this result should end up in plain_text
- 
-    //TODO: make sure this gets set to the right value
-    //the number of characters in the cleaned output
-    int numElements = thrust::remove_copy_if(  thrust::make_transform_iterator(dText.begin(), upper_to_lower()), 
-                             thrust::make_transform_iterator(dText.end(),   upper_to_lower()), 
-                             plain_text.begin(), isnot_lowercase_alpha()) - plain_text.begin();
-                             
-    thrust::host_vector<unsigned char> host_cipher_text;
-    if( period == 0){
-        host_cipher_text = plain_text;
-    }  
-    else{
-        
-        thrust::device_vector<unsigned int> shifts(period);
-
-        //TODO: Use thrust's random number generation capability to initialize the shift vector
-        // Create a minstd_rand object to act as our source of randomness
-        thrust::minstd_rand rng;
-        // The key should be lowercase letter
-        thrust::uniform_int_distribution<unsigned int> dist(1,26); 
-        std::cout<<"Key: ";
-        for(int i=0;i<period;++i){ shifts[i] = dist(rng); std::cout<<(unsigned char) ((shifts[i]==26)?'z': shifts[i] +'a');}
-        std::cout<<"\n";
-        
-        thrust::device_vector<unsigned char> device_cipher_text(numElements);
-
-        //TODO: Again, with one thrust call, create the cipher text from the plaintext     
-        thrust::transform_iterator<periodic_shifts_fun, thrust::counting_iterator<size_t>  > 
-            periodic_shifts_iter = thrust::make_transform_iterator(  thrust::make_counting_iterator((size_t)0),
-                                                                     periodic_shifts_fun(period, thrust::raw_pointer_cast(&shifts[0]))); 
-                    
-        thrust::transform(  plain_text.begin(), 
-                            plain_text.begin() + numElements, 
-                            periodic_shifts_iter,
-                            device_cipher_text.begin(), apply_shift());
-
-        host_cipher_text = device_cipher_text;
+    int n, p, q, iters;
+    ifs_a >> n >> p >> q >> iters;
+    thrust::host_vector<float> a(n); 
+    thrust::host_vector<float> s(p); 
+    thrust::host_vector<float> k(n); 
+    for(int i=0; i<n; ++i){ ifs_a >> a[i];}
+    for(int i=0; i<p; ++i){ ifs_a >> s[i];}
+    for(int i=0; i<n; ++i){ ifs_a >> k[i];}
+    ifs_a.close();
+    std::ifstream ifs_b(argv[2]);
+    if (!ifs_b.good()) {
+        std::cerr << "Couldn't open " << argv[2] << std::endl;
+        return 1;
     }
+    thrust::host_vector<float> x(q); 
+    for(int i=0; i<q; ++i){ ifs_b >> x[i];}
+    ifs_b.close();
+
+    std::cout<<"\nDim of a: "<<n<<"\nDim of x: "<<q<<"\nDim of s: "<< p<<"\n# of iters: "<<iters<<"\n\n";
+
+    thrust::host_vector<float> cpu_buffer; 
+    float* cpu_curr;
+    float* cpu_prev;
+    if( cpu_check != 0)
+    {
+        cpu_buffer.resize(2*n);
+        for(int i=0;i<n;++i){ cpu_buffer[i] = a[i];}
+        cpu_curr = &cpu_buffer[0];
+        cpu_prev = &cpu_buffer[n];
+        for(int iter=0; iter<iters;++iter)
+        {   std::cout<<"CPU_iter: "<<iter<<"\n";
+            std::swap(cpu_curr, cpu_prev);
+            int s_pos = 0;
+            for(int i=0; i<n; ++i)
+            {
+                double sum = 0;
+                
+                for( int j=s[s_pos]; j<i+1;++j)
+                {
+                    sum += cpu_prev[j]*x[k[j]];
+                }
+                cpu_curr[i] = sum;
+            }
+        }
+    }  
+
+    cudaEvent_t start;
+    cudaEvent_t end;
+
+    cudaEventCreate(&start);
+    cudaEventCreate(&end);
+    cudaEventRecord(start, 0);
+
+
+    cudaEventRecord(end, 0);
+    cudaEventSynchronize(end);
+    float elapsed_time;
+    cudaEventElapsedTime(&elapsed_time, start, end);
+
+    if (cpu_check != 0) 
+    {
+        std::cout<<"Checking the correctness by using the CPU\n\n";
+        std::ofstream ofs_cpu("b_cpu.txt");
+        for (int i = 0; i < n; ++i) {
+            //assert(cpu_b[i] == gpu_b[i]);
+            ofs_cpu << cpu_curr[i] << " ";
+        }
+        ofs_cpu.close();
+    }
+
+    std::cout<<"The running time of my code for "<<iters<<" iterations is: "<<elapsed_time<< " milliseconds.\n\n";
     
-    std::ofstream ofs("cipher_text.txt", std::ios::binary);
-
-    ofs.write((char *)&host_cipher_text[0], numElements);
-
-    ofs.close();
-
     return 0;
 }
