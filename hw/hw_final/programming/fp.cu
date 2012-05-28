@@ -63,18 +63,16 @@ int main(int argc, char **argv) {
         cpu_curr = &cpu_buffer[0];
         cpu_prev = &cpu_buffer[n];
         for(int iter=0; iter<iters;++iter)
-        {   std::cout<<"CPU_iter: "<<iter<<"\n";
+        { 
+            std::cout<<"CPU_iter: "<<iter<<"\n";
             std::swap(cpu_curr, cpu_prev);
             int s_pos = 0;
             for(int i=0; i<n; ++i)
             {
-                if( i%1000==0) std::cout<<"  ith: "<<i <<" "<< n<<"\n";
                 double sum = 0;
-                while(!( s[s_pos]<=i && s[s_pos] < (i+1))){ s_pos++;}
-                for( int j=s[s_pos]; j<i+1;++j)
-                {
-                    sum += cpu_prev[j]*x[k[j]];
-                }
+                while(!( s[s_pos]<i+1 && i<s[s_pos+1])){ s_pos++;}
+                //if( i%1000==0) std::cout<<"  ith: "<<i <<" "<< n<<" s_pos: "<<s_pos<<" s[s_pos]: "<<s[s_pos]<<" s[s_pos+1]: "<<s[s_pos+1]<<"\n";
+                for( int j=s[s_pos]; j<i+1;++j){ sum += cpu_prev[j]*x[k[j]];}
                 cpu_curr[i] = sum;
             }
         }
@@ -82,10 +80,11 @@ int main(int argc, char **argv) {
 
     cudaEvent_t start;
     cudaEvent_t end;
-
     cudaEventCreate(&start);
     cudaEventCreate(&end);
     cudaEventRecord(start, 0);
+
+
 
 
     cudaEventRecord(end, 0);
