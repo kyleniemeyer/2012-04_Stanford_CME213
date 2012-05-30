@@ -1,0 +1,12 @@
+
+Dim of a: 1916928
+Dim of x: 17216
+Dim of s: 49151
+# of iters: 15
+
+The CPU running time of my code for 15 iterations is: 123.077 milliseconds.
+
+Checking the correctness by the result from CPU
+
+The running time of my code for 15 iterations is: 109.435 milliseconds.
+

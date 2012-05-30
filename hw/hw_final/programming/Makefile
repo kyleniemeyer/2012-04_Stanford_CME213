@@ -1,8 +1,8 @@
 
 ifdef DEBUG
-	NVCCFLAGS=-arch=sm_20 -g 
+	NVCCFLAGS=-arch=sm_20 -g -Xcompiler -fopenmp 
 else
-	NVCCFLAGS=-O3 -arch=sm_20
+	NVCCFLAGS=-O3 -arch=sm_20 -Xcompiler -fopenmp
 endif
 
 
