@@ -78,6 +78,7 @@ int main(int argc, char **argv) {
     
     int n, p, q, iters;
     ifs_a >> n >> p >> q >> iters;
+//iters=3;
     thrust::host_vector<CPUFloatType> a(n); 
     thrust::host_vector<int> s(p); 
     thrust::host_vector<int> k(n); 

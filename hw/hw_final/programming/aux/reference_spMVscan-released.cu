@@ -223,67 +223,15 @@ int main(int argc, char **argv) {
 		
 		/* Write back the CPU solution to b.txt.
 		   This is in case b.txt does not contain the correct solution. */
-	//	 output(b_cpu,b_txt.c_str());
+		// output(b_cpu,b_txt.c_str());
 		
-		event_pair timer;
-		
-			// Calculate a slow GPU solution using thrust
-		typedef thrust::device_vector<float> tvector;
-		typedef thrust::device_vector<int> tivector;
-		tvector d_a = a0;
-		tvector d_b = m->a;
-		tvector d_x = m->x;  
-		tivector d_s = m->s;
-		tivector d_k = m->k;
-		
-		// thrust code
-		
-		//start_timer(&timer);
-		for(int i = 0; i < m->N; i++) {
-			// more thrust code
-			d_a = d_b;
-		}  
-		//stop_timer(&timer,"GPU 1");
-		
-			// Copy back
-		thrust::host_vector<float> h_b = d_b;
-		std::vector<double> b_gpu(h_b.size());
-		for (int i=0; i<b_gpu.size(); ++i) b_gpu[i] = h_b[i];
-		
-			// Thrust implementation using segmented scans
-			// Re-initialize
-		d_a = a0;
-		
-		// Second thrust code
-
-		//start_timer(&timer);
-		for(int i = 0; i < m->N; i++) {
-			// more thrust code
-			d_a = d_b;
-		}  
-		//stop_timer(&timer,"GPU 2");  
-		
-			// Copy back
-		h_b = d_b;
-		std::vector<double> b_thrust(h_b.size());
-		for (int i=0; i<b_gpu.size(); ++i) b_thrust[i] = h_b[i];
 		
 			// Printing all error estimates
 		printf("File:\t absolute l2/linf - relative l2/linf \t%8.1e %8.1e %8.1e %8.1e\n",
 			   L2Distance(b_cpu,b_file), LInfDistance(b_cpu,b_file),
 			   relativeL2Error(b_cpu,b_file), relativeLInfError(b_cpu,b_file));  
 		
-	//	printf("GPU 1:\t absolute l2/linf - relative l2/linf \t%8.1e %8.1e %8.1e %8.1e\n",
-	//		   L2Distance(b_cpu,b_gpu), LInfDistance(b_cpu,b_gpu),
-	//		   relativeL2Error(b_cpu,b_gpu), relativeLInfError(b_cpu,b_gpu));   
-		
-	//	printf("GPU 2:\t absolute l2/linf - relative l2/linf \t%8.1e %8.1e %8.1e %8.1e\n",
-	//		   L2Distance(b_cpu,b_thrust), LInfDistance(b_cpu,b_thrust),
-	//		   relativeL2Error(b_cpu,b_thrust), relativeLInfError(b_cpu,b_thrust));   
-		
-	//	printf("GPU 1/2: absolute l2/linf - relative l2/linf \t%8.1e %8.1e %8.1e %8.1e\n",
-	//		   L2Distance(b_gpu,b_thrust), LInfDistance(b_gpu,b_thrust),
-	//		   relativeL2Error(b_gpu,b_thrust), relativeLInfError(b_gpu,b_thrust));  
+	
 
 		delete m;
 	}
