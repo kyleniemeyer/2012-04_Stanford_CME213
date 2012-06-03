@@ -72,8 +72,8 @@ int main(int argc, char **argv) {
         return 1;
     }
     
-    typedef double CPUFloatType;
-    typedef double GPUFloatType;
+    typedef float CPUFloatType;
+    typedef float GPUFloatType;
 
     
     int n, p, q, iters;

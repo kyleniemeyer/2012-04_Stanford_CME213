@@ -1,0 +1,21 @@
+
+  In order to work towards the performance deadline, we have released a 
+  mechanism which reports some error metrics given some input [a.txt, x.txt]
+  and an output [b.txt]. 
+
+  You may copy this code and modify it locally if you desire, but it is not necessary.
+  You can compile it with nvcc sparseMV.cu
+
+  You can run the code with
+
+    $ ./a.out a.txt x.txt b.txt
+
+  You can test this within this directory using
+
+    $ ./a.out small_a.txt small_x.txt small_b.txt
+
+  And you will see that there is a rounding error, as small_b.txt are single precision values
+  But the internal script is using double precision.
+
+  Post a message to piazza with any doubts / concerns
+
