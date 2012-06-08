@@ -119,7 +119,7 @@ int main(int argc, char **argv) {
     
     thrust::host_vector<CPUFloatType> cpu_buffer; 
     CPUFloatType* cpu_curr;
-    CPUFloatType* cpu_prev;
+   // CPUFloatType* cpu_prev;
     // Since x will be used several times, let's flat it to increase the memory access coalesce.
     thrust::host_vector<CPUFloatType> xx(n); 
     for(int i=0; i<n; ++i){ xx[i] = x[k[i]];}
@@ -130,25 +130,21 @@ int main(int argc, char **argv) {
     if( cpu_check != 0)
     {
         
-        cpu_buffer.resize(2*n);
+        cpu_buffer.resize(n);
         thrust::copy(a.begin(), a.end(), cpu_buffer.begin());
-        cpu_curr = &cpu_buffer[0];
-        cpu_prev = &cpu_buffer[n];
-        
+        cpu_curr = &cpu_buffer[0];        
         cpu_start_time = omp_get_wtime(); 
         for(int iter=0; iter<iters;++iter)
         {  
-            std::swap(cpu_curr, cpu_prev);
             #pragma omp parallel for 
-            for(int i=0; i<n; ++i){ cpu_prev[i] *= xx[i];}
+            for(int i=0; i<n; ++i){ cpu_curr[i] *= xx[i];}
             // Perform a segmented scan in CPU
             #pragma omp parallel for 
             for(int i=1; i<p; ++i)
             {
-                cpu_curr[s[i-1]] = cpu_prev[s[i-1]];
                 for(int j=s[i-1]+1; j<s[i]; ++j)
                 {
-                    cpu_curr[j] = cpu_curr[j-1] + cpu_prev[j];
+                    cpu_curr[j] += cpu_curr[j-1]; 
                 }
             }
         }
@@ -201,7 +197,7 @@ int main(int argc, char **argv) {
         for (int i = 0; i < n; ++i) {
             if( std::abs(cpu_curr[i] - gpu_result_on_host[i]) > tol)
             {
-                std::cout<<"i: "<<i<<", "<<std::abs(cpu_curr[i] - gpu_result_on_host[i]) <<"\n";
+            //    std::cout<<"i: "<<i<<", "<<std::abs(cpu_curr[i] - gpu_result_on_host[i]) <<"\n";
               //  assert( std::abs(cpu_curr[i] - gpu_result_on_host[i]) < tol) ;
             }
             ofs_cpu << cpu_curr[i] << " ";

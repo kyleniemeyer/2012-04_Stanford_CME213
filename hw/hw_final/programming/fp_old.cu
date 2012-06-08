@@ -163,7 +163,7 @@ int main(int argc, char **argv) {
     gpu_prev = &gpu_buffer[n];
     thrust::copy(a.begin(), a.end(), gpu_buffer.begin());
 
-    int threads_in_segment = 16;
+    int threads_in_segment = 32;
     dim3 threads(512, 1, 1);
     int grid_size = (p*threads_in_segment + threads.x - 1)/threads.x; 
     //std::cout<<"grid:"<<grid_size<<"\n";
@@ -211,7 +211,7 @@ int main(int argc, char **argv) {
         for (int i = 0; i < n; ++i) {
             if( std::abs(cpu_curr[i] - gpu_result_on_host[i]) > tol)
             {
-                std::cout<<"i: "<<i<<", "<<std::abs(cpu_curr[i] - gpu_result_on_host[i]) <<"\n";
+               // std::cout<<"i: "<<i<<", "<<std::abs(cpu_curr[i] - gpu_result_on_host[i]) <<"\n";
               //  assert( std::abs(cpu_curr[i] - gpu_result_on_host[i]) < tol) ;
             }
             ofs_cpu << cpu_curr[i] << " ";
